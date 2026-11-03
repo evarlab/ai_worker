@@ -1,6 +1,7 @@
 <?xml version="1.0"?>
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
-  <xacro:macro name="ffw_sg2_follower_system" params="use_sim:=^|false use_mock_hardware:=^|false mock_sensor_commands:=^|false">
+  <!-- use_gripper:=false drops gripper_{r,l}_joint1 (Dynamixel IDs 8, 38), e.g. for Sharpa hands. -->
+  <xacro:macro name="ffw_sg2_follower_system" params="use_sim:=^|false use_mock_hardware:=^|false mock_sensor_commands:=^|false use_gripper:=^|true">
     <ros2_control name="ffw_sg2_follower" type="system" is_async="true">
       <xacro:if value="$(arg use_sim)">
         <hardware>
@@ -19,8 +20,14 @@
             <param name="port_name">/dev/follower</param>
             <param name="baud_rate">4000000</param>
             <param name="dynamixel_model_folder">/param/dxl_model</param>
-            <param name="number_of_joints">22</param>
-            <param name="number_of_transmissions">22</param>
+            <xacro:if value="${use_gripper}">
+              <param name="number_of_joints">22</param>
+              <param name="number_of_transmissions">22</param>
+            </xacro:if>
+            <xacro:unless value="${use_gripper}">
+              <param name="number_of_joints">20</param>
+              <param name="number_of_transmissions">20</param>
+            </xacro:unless>
             <param name="disable_torque_at_init">true</param>
             <param name="dynamixel_state_pub_msg_name">ffw_follower/dxl_state</param>
             <param name="get_dynamixel_data_srv_name">ffw_follower/get_dxl_data</param>
@@ -72,12 +79,14 @@
         <state_interface name="velocity"/>
         <state_interface name="effort"/>
       </joint>
-      <joint name="gripper_r_joint1">
-        <command_interface name="position"/>
-        <state_interface name="position"/>
-        <state_interface name="velocity"/>
-        <state_interface name="effort"/>
-      </joint>
+      <xacro:if value="${use_gripper}">
+        <joint name="gripper_r_joint1">
+          <command_interface name="position"/>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+          <state_interface name="effort"/>
+        </joint>
+      </xacro:if>
       <joint name="arm_l_joint1">
         <command_interface name="position"/>
         <state_interface name="position"/>
@@ -120,12 +129,14 @@
         <state_interface name="velocity"/>
         <state_interface name="effort"/>
       </joint>
-      <joint name="gripper_l_joint1">
-        <command_interface name="position"/>
-        <state_interface name="position"/>
-        <state_interface name="velocity"/>
-        <state_interface name="effort"/>
-      </joint>
+      <xacro:if value="${use_gripper}">
+        <joint name="gripper_l_joint1">
+          <command_interface name="position"/>
+          <state_interface name="position"/>
+          <state_interface name="velocity"/>
+          <state_interface name="effort"/>
+        </joint>
+      </xacro:if>
       <joint name="lift_joint">
         <command_interface name="position"/>
         <state_interface name="position"/>
@@ -327,19 +338,21 @@
         <param name="Max Position Limit">152804</param>
         <param name="Min Position Limit">-175979</param>
       </gpio>
-      <gpio name="dxl8">
-        <param name="type">dxl</param>
-        <param name="ID">8</param>
-        <command_interface name="Goal Position"/>
-        <state_interface name="Present Position"/>
-        <state_interface name="Present Velocity"/>
-        <state_interface name="Present Current"/>
-        <state_interface name="Hardware Error Status"/>
-        <param name="Operating Mode">5</param>
-        <param name="Return Delay Time">0</param>
-        <param name="Profile Velocity">0</param>
-        <param name="Profile Acceleration">0</param>
-      </gpio>
+      <xacro:if value="${use_gripper}">
+        <gpio name="dxl8">
+          <param name="type">dxl</param>
+          <param name="ID">8</param>
+          <command_interface name="Goal Position"/>
+          <state_interface name="Present Position"/>
+          <state_interface name="Present Velocity"/>
+          <state_interface name="Present Current"/>
+          <state_interface name="Hardware Error Status"/>
+          <param name="Operating Mode">5</param>
+          <param name="Return Delay Time">0</param>
+          <param name="Profile Velocity">0</param>
+          <param name="Profile Acceleration">0</param>
+        </gpio>
+      </xacro:if>
       <!-- LEFT ARM -->
       <gpio name="dxl31">
         <param name="type">dxl</param>
@@ -504,19 +517,21 @@
         <param name="Max Position Limit">175979</param>
         <param name="Min Position Limit">-152804</param>
       </gpio>
-      <gpio name="dxl38">
-        <param name="type">dxl</param>
-        <param name="ID">38</param>
-        <command_interface name="Goal Position"/>
-        <state_interface name="Present Position"/>
-        <state_interface name="Present Velocity"/>
-        <state_interface name="Present Current"/>
-        <state_interface name="Hardware Error Status"/>
-        <param name="Operating Mode">5</param>
-        <param name="Return Delay Time">0</param>
-        <param name="Profile Velocity">0</param>
-        <param name="Profile Acceleration">0</param>
-      </gpio>
+      <xacro:if value="${use_gripper}">
+        <gpio name="dxl38">
+          <param name="type">dxl</param>
+          <param name="ID">38</param>
+          <command_interface name="Goal Position"/>
+          <state_interface name="Present Position"/>
+          <state_interface name="Present Velocity"/>
+          <state_interface name="Present Current"/>
+          <state_interface name="Hardware Error Status"/>
+          <param name="Operating Mode">5</param>
+          <param name="Return Delay Time">0</param>
+          <param name="Profile Velocity">0</param>
+          <param name="Profile Acceleration">0</param>
+        </gpio>
+      </xacro:if>
       <!-- LIFT -->
       <gpio name="dxl81">
         <param name="type">dxl</param>

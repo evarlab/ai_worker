@@ -1,0 +1,79 @@
+<?xml version="1.0"?>
+<!--
+  Sharpa Wave hand on the AI Worker wrist through the A v2 adapter (the arm keeps its 7 joints).
+
+  Chain: <parent> (arm link7) -> <side>_adapter_mount -> <side>_hand_wrist -> <side>_hand_C_MC.
+  The hand itself (<side>_hand_C_MC and its 22 joints) comes from the official description package
+  <side>_sharpa_wave (sharpa-robotics/sharpa-urdf-usd-xml), included next to this macro; this macro
+  adds the adapter and the wrist link that the official "_with_wrist" variant defines but the
+  package does not install.
+
+  adapter: only a_v2 (A v2: link7 kept, 88 x 68 x 16.6 mm). B removes the last wrist joint and
+  needs a 6-joint arm; it is not described here.
+  mount_yaw [rad]: hand rotation about the wrist axis. The built robot uses left 90 deg and right
+  270 deg; 0 is the hands' reference orientation.
+  The adapter is a massless box with the adapter's outer size.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="sharpa_wave_mount" params="side parent mount_yaw adapter:=a_v2">
+    <xacro:if value="${adapter != 'a_v2'}">
+      ${xacro.fatal("sharpa_adapter: only a_v2 is supported, got '" + adapter + "'")}
+    </xacro:if>
+    <joint name="${side}_adapter_mount_joint" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${side}_adapter_mount"/>
+      <origin xyz="0 0 -0.072" rpy="${pi} 0 0"/>
+    </joint>
+    <link name="${side}_adapter_mount">
+      <visual>
+        <origin xyz="0 0 0.0083" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.088 0.068 0.0166"/>
+        </geometry>
+        <material name="sharpa_adapter">
+          <color rgba="0.95 0.55 0.2 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0.0083" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.088 0.068 0.0166"/>
+        </geometry>
+      </collision>
+    </link>
+
+    <joint name="${side}_sharpa_mount_joint" type="fixed">
+      <parent link="${side}_adapter_mount"/>
+      <child link="${side}_hand_wrist"/>
+      <origin xyz="0 0 0.0171" rpy="0 0 ${mount_yaw}"/>
+    </joint>
+    <!-- From <side>_sharpa_wave_with_wrist.urdf (same commit as the included hand). -->
+    <link name="${side}_hand_wrist">
+      <inertial>
+        <origin xyz="-2.34E-3 2.2E-4 1.5E-2" rpy="0 0 0"/>
+        <mass value="0.0505"/>
+        <inertia ixx="1.25E-5" ixy="7.33E-9" ixz="5.4E-8" iyy="1.13E-5" iyz="1.01E-8" izz="1.64E-5"/>
+      </inertial>
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://${side}_sharpa_wave/meshes/wrist_B.STL"/>
+        </geometry>
+        <material name="sharpa_wrist">
+          <color rgba="0.79216 0.81961 0.93333 1"/>
+        </material>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="package://${side}_sharpa_wave/meshes/wrist_collision.STL"/>
+        </geometry>
+      </collision>
+    </link>
+    <joint name="${side}_hand_wrist_fix_joint" type="fixed">
+      <parent link="${side}_hand_wrist"/>
+      <child link="${side}_hand_C_MC"/>
+      <origin xyz="0 0 0.029" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+</robot>

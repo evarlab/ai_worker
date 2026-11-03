@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+<!--
+  ros2_control system for one Sharpa Wave hand (ffw_sharpa_hardware/SharpaWaveSystem), 22 joints in
+  the SDK's order. Position command; position, velocity and effort state.
+
+  The hand is found by side plus serial_number (when given) or ip. Pass device identities at launch
+  time or through environment variables; do not commit them.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:macro name="sharpa_wave_hand_joint" params="name">
+    <joint name="${name}">
+      <command_interface name="position"/>
+      <state_interface name="position"/>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:macro name="sharpa_wave_hand_system"
+    params="side ip:='' serial_number:='' speed_coeff:=0.3 use_sim:=^|false use_mock_hardware:=^|false mock_sensor_commands:=^|false">
+    <ros2_control name="sharpa_${side}_hand" type="system" is_async="true">
+      <hardware>
+        <xacro:if value="${use_sim}">
+          <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+        </xacro:if>
+        <xacro:unless value="${use_sim}">
+          <xacro:if value="${use_mock_hardware}">
+            <plugin>mock_components/GenericSystem</plugin>
+            <param name="mock_sensor_commands">${mock_sensor_commands}</param>
+            <param name="state_following_offset">0.0</param>
+          </xacro:if>
+          <xacro:unless value="${use_mock_hardware}">
+            <plugin>ffw_sharpa_hardware/SharpaWaveSystem</plugin>
+            <param name="hand_side">${side}</param>
+            <xacro:if value="${ip != ''}">
+              <param name="ip">${ip}</param>
+            </xacro:if>
+            <xacro:if value="${serial_number != ''}">
+              <param name="serial_number">${serial_number}</param>
+            </xacro:if>
+            <param name="speed_coeff">${speed_coeff}</param>
+            <param name="connect_timeout">10.0</param>
+            <param name="feedback_timeout">0.5</param>
+          </xacro:unless>
+        </xacro:unless>
+      </hardware>
+      <xacro:sharpa_wave_hand_joint name="${side}_thumb_CMC_FE"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_thumb_CMC_AA"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_thumb_MCP_FE"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_thumb_MCP_AA"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_thumb_IP"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_index_MCP_FE"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_index_MCP_AA"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_index_PIP"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_index_DIP"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_middle_MCP_FE"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_middle_MCP_AA"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_middle_PIP"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_middle_DIP"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_ring_MCP_FE"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_ring_MCP_AA"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_ring_PIP"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_ring_DIP"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_pinky_CMC"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_pinky_MCP_FE"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_pinky_MCP_AA"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_pinky_PIP"/>
+      <xacro:sharpa_wave_hand_joint name="${side}_pinky_DIP"/>
+    </ros2_control>
+  </xacro:macro>
+</robot>

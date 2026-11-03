@@ -8,10 +8,42 @@
   <xacro:arg name="prefix" default="" />
   <xacro:arg name="model" default="ffw_sg2_rev1_follower" />
   <xacro:arg name="ros2_control_type" default="ffw_sg2_follower" />
+  <!-- End effectors on the arm flanges: gripper (default, RH-P12-RN-A), none (bare flanges) or
+       sharpa (Sharpa Wave hands; needs ffw_sharpa_hardware/scripts/setup_sharpa.sh).
+       With sharpa: "hands" picks the mounted hands (both, left or right); sharpa_adapter is the
+       wrist adapter (a_v2: arm keeps 7 joints); *_hand_mount_deg is each hand's rotation about the
+       wrist axis (built robot: left 90, right 270); the hands' identities come from the
+       *_hand_ip / *_hand_serial arguments (empty: factory IP for that side). -->
+  <xacro:arg name="end_effector" default="gripper" />
+  <xacro:arg name="hands" default="both" />
+  <xacro:arg name="left_hand_ip" default="" />
+  <xacro:arg name="right_hand_ip" default="" />
+  <xacro:arg name="left_hand_serial" default="" />
+  <xacro:arg name="right_hand_serial" default="" />
+  <xacro:arg name="hand_speed_coeff" default="0.3" />
+  <xacro:arg name="sharpa_adapter" default="a_v2" />
+  <xacro:arg name="left_hand_mount_deg" default="90" />
+  <xacro:arg name="right_hand_mount_deg" default="270" />
+  <xacro:property name="end_effector" value="$(arg end_effector)" />
+  <xacro:property name="use_gripper" value="${end_effector == 'gripper'}" />
+  <xacro:property name="left_hand" value="${end_effector == 'sharpa' and '$(arg hands)' in ('both', 'left')}" />
+  <xacro:property name="right_hand" value="${end_effector == 'sharpa' and '$(arg hands)' in ('both', 'right')}" />
 
   <xacro:include filename="$(find ffw_description)/urdf/common/follower/ffw_follower_body.xacro" />
 
-  <xacro:include filename="$(find ffw_description)/urdf/common/rh_p12_rn_a/rh_p12_rn_a.urdf.xacro" />
+  <xacro:if value="${use_gripper}">
+    <xacro:include filename="$(find ffw_description)/urdf/common/rh_p12_rn_a/rh_p12_rn_a.urdf.xacro" />
+  </xacro:if>
+  <xacro:if value="${left_hand or right_hand}">
+    <xacro:include filename="$(find ffw_description)/urdf/common/sharpa_wave/sharpa_wave_mount.urdf.xacro" />
+    <xacro:include filename="$(find ffw_description)/ros2_control/common/sharpa_wave/sharpa_wave_hand.ros2_control.xacro" />
+  </xacro:if>
+  <xacro:if value="${left_hand}">
+    <xacro:include filename="$(find left_sharpa_wave)/left_sharpa_wave.urdf" />
+  </xacro:if>
+  <xacro:if value="${right_hand}">
+    <xacro:include filename="$(find right_sharpa_wave)/right_sharpa_wave.urdf" />
+  </xacro:if>
 
   <xacro:include filename="$(find ffw_description)/ros2_control/$(arg model)/$(arg ros2_control_type).ros2_control.xacro" />
   <xacro:include filename="$(find ffw_description)/ros2_control/$(arg model)/ffw_sg2_base.ros2_control.xacro" />
@@ -127,9 +159,15 @@
     <origin xyz="-0.0199 0 1.4316" rpy="0 0 0" />
   </xacro:ffw_follower_body>
 
-  <xacro:rh_p12_rn_a parent="$(arg prefix)arm_l_link7" prefix="$(arg prefix)gripper_l_">
-    <origin xyz="0 0 -0.078" rpy="0 3.14159265359 3.14159265359"/>
-  </xacro:rh_p12_rn_a>
+  <xacro:if value="${use_gripper}">
+    <xacro:rh_p12_rn_a parent="$(arg prefix)arm_l_link7" prefix="$(arg prefix)gripper_l_">
+      <origin xyz="0 0 -0.078" rpy="0 3.14159265359 3.14159265359"/>
+    </xacro:rh_p12_rn_a>
+  </xacro:if>
+  <xacro:if value="${left_hand}">
+    <xacro:sharpa_wave_mount side="left" parent="$(arg prefix)arm_l_link7"
+      adapter="$(arg sharpa_adapter)" mount_yaw="${radians(float($(arg left_hand_mount_deg)))}" />
+  </xacro:if>
 
   <joint name="$(arg prefix)end_effector_l_joint" type="fixed">
     <parent link="$(arg prefix)arm_l_link7"/>
@@ -149,9 +187,15 @@
     </visual>
   </link>
 
-  <xacro:rh_p12_rn_a parent="$(arg prefix)arm_r_link7" prefix="$(arg prefix)gripper_r_">
-    <origin xyz="0 0 -0.078" rpy="0 3.14159265359 3.14159265359"/>
-  </xacro:rh_p12_rn_a>
+  <xacro:if value="${use_gripper}">
+    <xacro:rh_p12_rn_a parent="$(arg prefix)arm_r_link7" prefix="$(arg prefix)gripper_r_">
+      <origin xyz="0 0 -0.078" rpy="0 3.14159265359 3.14159265359"/>
+    </xacro:rh_p12_rn_a>
+  </xacro:if>
+  <xacro:if value="${right_hand}">
+    <xacro:sharpa_wave_mount side="right" parent="$(arg prefix)arm_r_link7"
+      adapter="$(arg sharpa_adapter)" mount_yaw="${radians(float($(arg right_hand_mount_deg)))}" />
+  </xacro:if>
 
   <joint name="$(arg prefix)end_effector_r_joint" type="fixed">
     <parent link="$(arg prefix)arm_r_link7"/>
@@ -381,7 +425,23 @@
   <xacro:ffw_sg2_follower_system
     use_sim="$(arg use_sim)"
     use_mock_hardware="$(arg use_mock_hardware)"
-    mock_sensor_commands="$(arg mock_sensor_commands)"/>
+    mock_sensor_commands="$(arg mock_sensor_commands)"
+    use_gripper="${use_gripper}"/>
+
+  <xacro:if value="${left_hand}">
+    <xacro:sharpa_wave_hand_system side="left"
+      ip="$(arg left_hand_ip)" serial_number="$(arg left_hand_serial)"
+      speed_coeff="$(arg hand_speed_coeff)"
+      use_sim="$(arg use_sim)" use_mock_hardware="$(arg use_mock_hardware)"
+      mock_sensor_commands="$(arg mock_sensor_commands)"/>
+  </xacro:if>
+  <xacro:if value="${right_hand}">
+    <xacro:sharpa_wave_hand_system side="right"
+      ip="$(arg right_hand_ip)" serial_number="$(arg right_hand_serial)"
+      speed_coeff="$(arg hand_speed_coeff)"
+      use_sim="$(arg use_sim)" use_mock_hardware="$(arg use_mock_hardware)"
+      mock_sensor_commands="$(arg mock_sensor_commands)"/>
+  </xacro:if>
 
   <xacro:ffw_sg2_base_system
     use_sim="$(arg use_sim)"

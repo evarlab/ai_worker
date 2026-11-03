@@ -1,0 +1,149 @@
+# Start-up motion of ffw_sg2_sharpa_follower_ai.launch.py (init_position:=true): arms, head,
+# lift and steering to zero, mounted hands open (all finger joints zero).
+/**:
+  arm_l_joint_trajectory_executor:
+    ros__parameters:
+      joint_names:
+        - arm_l_joint1
+        - arm_l_joint2
+        - arm_l_joint3
+        - arm_l_joint4
+        - arm_l_joint5
+        - arm_l_joint6
+        - arm_l_joint7
+      step_names: [home]
+      home: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      duration: 5.0
+      position_tolerance: 0.1
+      velocity_tolerance: 0.01
+      action_topic: '/arm_l_controller/follow_joint_trajectory'
+      joint_states_topic: '/joint_states'
+
+/**:
+  arm_r_joint_trajectory_executor:
+    ros__parameters:
+      joint_names:
+        - arm_r_joint1
+        - arm_r_joint2
+        - arm_r_joint3
+        - arm_r_joint4
+        - arm_r_joint5
+        - arm_r_joint6
+        - arm_r_joint7
+      step_names: [home]
+      home: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      duration: 5.0
+      position_tolerance: 0.1
+      velocity_tolerance: 0.01
+      action_topic: '/arm_r_controller/follow_joint_trajectory'
+      joint_states_topic: '/joint_states'
+
+/**:
+  head_joint_trajectory_executor:
+    ros__parameters:
+      joint_names:
+        - head_joint1
+        - head_joint2
+      step_names: [home]
+      home: [0.0, 0.0]
+      duration: 5.0
+      position_tolerance: 0.1
+      velocity_tolerance: 0.01
+      action_topic: '/head_controller/follow_joint_trajectory'
+      joint_states_topic: '/joint_states'
+
+/**:
+  lift_joint_trajectory_executor:
+    ros__parameters:
+      joint_names:
+        - lift_joint
+      step_names: [home]
+      home: [0.0]
+      duration: 10.0
+      position_tolerance: 0.1
+      velocity_tolerance: 0.01
+      action_topic: '/lift_controller/follow_joint_trajectory'
+      joint_states_topic: '/joint_states'
+
+/**:
+  swerve_steering_joint_trajectory_executor:
+    ros__parameters:
+      joint_names:
+        - left_wheel_steer
+        - right_wheel_steer
+        - rear_wheel_steer
+      step_names: [home]
+      home: [0.0, 0.0, 0.0]
+      duration: 10.0
+      position_tolerance: 0.1
+      velocity_tolerance: 0.01
+      action_topic: '/swerve_steering_initial_position_controller/follow_joint_trajectory'
+      joint_states_topic: '/joint_states'
+
+/**:
+  hand_l_joint_trajectory_executor:
+    ros__parameters:
+      joint_names:
+        - left_thumb_CMC_FE
+        - left_thumb_CMC_AA
+        - left_thumb_MCP_FE
+        - left_thumb_MCP_AA
+        - left_thumb_IP
+        - left_index_MCP_FE
+        - left_index_MCP_AA
+        - left_index_PIP
+        - left_index_DIP
+        - left_middle_MCP_FE
+        - left_middle_MCP_AA
+        - left_middle_PIP
+        - left_middle_DIP
+        - left_ring_MCP_FE
+        - left_ring_MCP_AA
+        - left_ring_PIP
+        - left_ring_DIP
+        - left_pinky_CMC
+        - left_pinky_MCP_FE
+        - left_pinky_MCP_AA
+        - left_pinky_PIP
+        - left_pinky_DIP
+      step_names: [home]
+      home: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      duration: 3.0
+      position_tolerance: 0.1
+      velocity_tolerance: 0.01
+      action_topic: '/hand_l_controller/follow_joint_trajectory'
+      joint_states_topic: '/joint_states'
+
+/**:
+  hand_r_joint_trajectory_executor:
+    ros__parameters:
+      joint_names:
+        - right_thumb_CMC_FE
+        - right_thumb_CMC_AA
+        - right_thumb_MCP_FE
+        - right_thumb_MCP_AA
+        - right_thumb_IP
+        - right_index_MCP_FE
+        - right_index_MCP_AA
+        - right_index_PIP
+        - right_index_DIP
+        - right_middle_MCP_FE
+        - right_middle_MCP_AA
+        - right_middle_PIP
+        - right_middle_DIP
+        - right_ring_MCP_FE
+        - right_ring_MCP_AA
+        - right_ring_PIP
+        - right_ring_DIP
+        - right_pinky_CMC
+        - right_pinky_MCP_FE
+        - right_pinky_MCP_AA
+        - right_pinky_PIP
+        - right_pinky_DIP
+      step_names: [home]
+      home: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+      duration: 3.0
+      position_tolerance: 0.1
+      velocity_tolerance: 0.01
+      action_topic: '/hand_r_controller/follow_joint_trajectory'
+      joint_states_topic: '/joint_states'

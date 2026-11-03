@@ -32,6 +32,8 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     use_gui = LaunchConfiguration('use_gui')
     model = LaunchConfiguration('model')
+    end_effector = LaunchConfiguration('end_effector')
+    hands = LaunchConfiguration('hands')
 
     urdf_file = Command(
         [
@@ -48,6 +50,12 @@ def generate_launch_description():
             ' ',
             'use_mock_hardware:=',
             'False',
+            ' ',
+            'end_effector:=',
+            end_effector,
+            ' ',
+            'hands:=',
+            hands,
         ]
     )
 
@@ -69,6 +77,18 @@ def generate_launch_description():
             'model',
             default_value='ffw_sg2_rev1_follower',
             description='Robot model name.'),
+
+        DeclareLaunchArgument(
+            'end_effector',
+            default_value='gripper',
+            choices=['gripper', 'none', 'sharpa'],
+            description='End effectors on the arms.'),
+
+        DeclareLaunchArgument(
+            'hands',
+            default_value='both',
+            choices=['both', 'left', 'right'],
+            description='Mounted Sharpa hands (end_effector:=sharpa).'),
 
         Node(
             package='robot_state_publisher',

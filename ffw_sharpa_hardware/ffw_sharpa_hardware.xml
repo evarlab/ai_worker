@@ -1,0 +1,7 @@
+<library path="ffw_sharpa_hardware">
+  <class name="ffw_sharpa_hardware/SharpaWaveSystem"
+         type="ffw_sharpa_hardware::SharpaWaveSystem"
+         base_class_type="hardware_interface::SystemInterface">
+    <description>One Sharpa Wave hand (22 joints, position control) through the SharpaWave SDK.</description>
+  </class>
+</library>

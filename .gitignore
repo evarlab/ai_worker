@@ -532,3 +532,6 @@ doc/
 ## GurumDDS
 *.ar
 
+
+# Sharpa Wave SDK and hand descriptions (ffw_sharpa_hardware/scripts/setup_sharpa.sh)
+third_party/
