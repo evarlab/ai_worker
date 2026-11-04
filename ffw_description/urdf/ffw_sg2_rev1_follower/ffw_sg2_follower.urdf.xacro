@@ -12,7 +12,7 @@
        sharpa (Sharpa Wave hands; needs ffw_sharpa_hardware/scripts/setup_sharpa.sh).
        With sharpa: "hands" picks the mounted hands (both, left or right); sharpa_adapter is the
        wrist adapter (a_v2: arm keeps 7 joints); *_hand_mount_deg is each hand's rotation about the
-       wrist axis (built robot: left 90, right 270); the hands' identities come from the
+       wrist axis (built robot: 0 on both hands); the hands' identities come from the
        *_hand_ip / *_hand_serial arguments (empty: factory IP for that side). -->
   <xacro:arg name="end_effector" default="gripper" />
   <xacro:arg name="hands" default="both" />
@@ -22,8 +22,8 @@
   <xacro:arg name="right_hand_serial" default="" />
   <xacro:arg name="hand_speed_coeff" default="0.3" />
   <xacro:arg name="sharpa_adapter" default="a_v2" />
-  <xacro:arg name="left_hand_mount_deg" default="90" />
-  <xacro:arg name="right_hand_mount_deg" default="270" />
+  <xacro:arg name="left_hand_mount_deg" default="0" />
+  <xacro:arg name="right_hand_mount_deg" default="0" />
   <xacro:property name="end_effector" value="$(arg end_effector)" />
   <xacro:property name="use_gripper" value="${end_effector == 'gripper'}" />
   <xacro:property name="left_hand" value="${end_effector == 'sharpa' and '$(arg hands)' in ('both', 'left')}" />

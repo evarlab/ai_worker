@@ -12,7 +12,7 @@ as one ros2_control robot.
 | | |
 | --- | --- |
 | Launch | `ros2 launch ffw_bringup ffw_sg2_sharpa_follower_ai.launch.py` |
-| Model | `ffw_description` SG2 xacro with `end_effector:=sharpa` (default: A v2 adapter, left hand 90°, right hand 270°) |
+| Model | `ffw_description` SG2 xacro with `end_effector:=sharpa` (default: A v2 adapter, both hands at 0° about the wrist axis) |
 | Hand model | official `left_sharpa_wave` / `right_sharpa_wave` packages ([sharpa-urdf-usd-xml](https://github.com/sharpa-robotics/sharpa-urdf-usd-xml), Apache-2.0) |
 | Hand driver | `ffw_sharpa_hardware` (this package), SharpaWave SDK 5.0.11 |
 
@@ -77,7 +77,7 @@ number, when given, takes precedence over the IP.
 | `left_hand_serial` / `right_hand_serial` | `SHARPA_LEFT_SERIAL` / `SHARPA_RIGHT_SERIAL` | hand serial number |
 | `hand_speed_coeff` | `SHARPA_SPEED_COEFF` (0.3) | SDK joint speed coefficient, (0, 0.5] |
 | `sharpa_adapter` | | `a_v2` (only; arms keep 7 joints) |
-| `left_hand_mount_deg` / `right_hand_mount_deg` | | hand rotation about the wrist axis, 90 / 270 |
+| `left_hand_mount_deg` / `right_hand_mount_deg` | | hand rotation about the wrist axis [deg], 0 / 0 (as built) |
 | `init_position`, `launch_cameras`, `launch_lidar`, `start_rviz` | | as in the SG2 launch |
 
 To view the model only:

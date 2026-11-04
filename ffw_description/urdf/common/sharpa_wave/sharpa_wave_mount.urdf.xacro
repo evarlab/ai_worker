@@ -10,8 +10,8 @@
 
   adapter: only a_v2 (A v2: link7 kept, 88 x 68 x 16.6 mm). B removes the last wrist joint and
   needs a 6-joint arm; it is not described here.
-  mount_yaw [rad]: hand rotation about the wrist axis. The built robot uses left 90 deg and right
-  270 deg; 0 is the hands' reference orientation.
+  mount_yaw [rad]: hand rotation about the wrist axis; 0 is the hands' reference orientation. The
+  built robot uses 0 on both hands (checked by overlaying the model on the wrist cameras).
   The adapter is a massless box with the adapter's outer size.
 -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">

@@ -28,7 +28,7 @@ commanded through its trajectory controller:
     head_controller, lift_controller, swerve_drive_controller
 
 hands:=none brings up the body without grippers or hands. The default model is the built robot:
-A v2 adapters, left hand at 90 deg and right hand at 270 deg about the wrist axis.
+A v2 adapters, both hands at 0 deg about the wrist axis.
 
 Hand identities are never stored in the repository: pass them as arguments or set
 SHARPA_LEFT_IP / SHARPA_RIGHT_IP / SHARPA_LEFT_SERIAL / SHARPA_RIGHT_SERIAL (empty: the factory IP
@@ -66,9 +66,9 @@ def declare_arguments():
                               description='Mounted Sharpa hands; none: bare flanges.'),
         DeclareLaunchArgument('sharpa_adapter', default_value='a_v2', choices=['a_v2'],
                               description='Wrist adapter (A v2: arms keep 7 joints).'),
-        DeclareLaunchArgument('left_hand_mount_deg', default_value='90',
+        DeclareLaunchArgument('left_hand_mount_deg', default_value='0',
                               description='Left hand rotation about the wrist axis [deg].'),
-        DeclareLaunchArgument('right_hand_mount_deg', default_value='270',
+        DeclareLaunchArgument('right_hand_mount_deg', default_value='0',
                               description='Right hand rotation about the wrist axis [deg].'),
         DeclareLaunchArgument('left_hand_ip',
                               default_value=EnvironmentVariable('SHARPA_LEFT_IP',
