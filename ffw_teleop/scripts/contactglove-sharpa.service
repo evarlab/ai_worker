@@ -1,0 +1,14 @@
+[Unit]
+Description=ContactGlove ROS topic to Sharpa hand bridge
+
+[Service]
+Type=simple
+Environment=ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET
+ExecStart=%h/ai_worker/ffw_teleop/scripts/run_contactglove_sharpa.sh
+KillSignal=SIGINT
+TimeoutStopSec=10
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

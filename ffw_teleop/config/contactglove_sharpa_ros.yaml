@@ -1,0 +1,17 @@
+contactglove_sharpa:
+  ros__parameters:
+    input_mode: ros
+    glove_namespace: /contact_glove
+    hands: both
+    controlled_fingers: all
+    auto_enable: true
+    dry_run: true  # Set false and specify both glove IDs for hardware output.
+    left_glove_id: ''
+    right_glove_id: ''
+    clamp_targets: false  # The hardware driver still enforces URDF joint limits.
+    max_speed: 0.0  # Disable software target slew limiting.
+    rate: 60.0
+    horizon: 0.04
+    timeout: 0.3
+    max_frame_age: 0.5
+    # Gains default to 1.0. Supply calibrated offsets for the actual glove/hand pair.

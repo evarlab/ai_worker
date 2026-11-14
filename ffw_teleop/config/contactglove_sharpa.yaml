@@ -1,0 +1,26 @@
+contactglove_sharpa:
+  ros__parameters:
+    host: '127.0.0.1'  # DivingStation PC address
+    port: 25791
+    local_port: 25792  # allow inbound UDP to this port
+    hands: 'right'  # left / right / both
+    left_glove_id: ''
+    right_glove_id: ''
+    dry_run: true  # publish only /contactglove/<side>/preview
+    rate: 30.0
+    timeout: 0.3
+    max_frame_age: 0.5  # Unix timestamps; synchronize both PC clocks
+    max_speed: 0.2  # target slew [rad/s], not a measured hardware velocity limit
+    horizon: 0.1  # trajectory interpolation horizon [s]
+    # Initial test envelope [rad], 0.35 rad ~= 20 degrees. Not collision-certified.
+    # Same 15-joint order as gains. Bounds may only narrow the hard limits.
+    left_lower: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    right_lower: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    left_upper: [0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35]
+    right_upper: [0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35]
+    # Order: thumb CMC/MCP/IP; index, middle, ring, pinky MCP/PIP/DIP.
+    # target [rad] = radians(glove [deg]) * gain + offset, then clamped.
+    left_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    right_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    left_offsets: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    right_offsets: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]

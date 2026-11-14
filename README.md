@@ -20,6 +20,9 @@ To use the Docker image for running ROS packages and Physical AI tools with the 
 
 ## Sharpa Wave hands (branch `devel/sharpa`)
 
+ContactGlove 3 Proで操作するブランチは`devel/contactgrove_sharpa`です。
+導入・mock確認・実機操作は[日本語手順](ffw_teleop/CONTACTGLOVE_SHARPA.md)を参照してください。
+
 The SG2 follower can run with Sharpa Wave hands instead of the grippers, or with bare flanges, as one
 ros2_control robot: `ros2 launch ffw_bringup ffw_sg2_sharpa_follower_ai.launch.py`. Setup, launch
 arguments, controllers and fault handling: [ffw_sharpa_hardware/README.md](ffw_sharpa_hardware/README.md).
