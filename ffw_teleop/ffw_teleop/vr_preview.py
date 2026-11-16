@@ -17,6 +17,7 @@ from std_srvs.srv import SetBool
 from trajectory_msgs.msg import JointTrajectory
 from contact_glove_msgs.msg import Ergonomics
 from .vr_pose_math import pose_matrix
+from .vr_start_pose import relaxed_arm_positions
 
 
 class PreviewRecovery:
@@ -71,11 +72,10 @@ def main(args=None):
              if j.get('type') != 'fixed']
     positions, seen = {}, {'joints': 0., 'left': 0., 'right': 0.}
     arm_names = {f'arm_{s}_joint{i}' for s in ('l', 'r') for i in range(1, 8)}
+    start_arms = relaxed_arm_positions(options.palms)
     if options.start_pose == 'relaxed':
         positions = dict.fromkeys(names, 0.)
-        if options.palms == 'inward':
-            positions['arm_l_joint5'] = -np.pi/2
-            positions['arm_r_joint5'] = np.pi/2
+        positions.update(start_arms)
     joint_pub = model.create_publisher(JointState, '/joint_states', 10)
     recovery = PreviewRecovery()
     model.create_subscription(Bool, '/vr/active',
@@ -85,12 +85,7 @@ def main(args=None):
         seen['joints'] = time.monotonic()
         for name, value in zip(msg.name, msg.position):
             is_arm = name in arm_names
-            initial = 0. if options.start_pose == 'relaxed' and is_arm else float(value)
-            if options.start_pose == 'relaxed' and options.palms == 'inward':
-                if name == 'arm_l_joint5':
-                    initial = -np.pi/2
-                elif name == 'arm_r_joint5':
-                    initial = np.pi/2
+            initial = start_arms[name] if options.start_pose == 'relaxed' and is_arm else float(value)
             positions.setdefault(name, initial)
 
     source.create_subscription(JointState, '/joint_states', seed, qos_profile_sensor_data)

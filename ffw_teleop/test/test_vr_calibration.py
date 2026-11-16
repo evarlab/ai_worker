@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 from scipy.spatial.transform import Rotation
 
-from ffw_teleop.vr_calibration_math import average_pose, fit_motion, validate_translation
-from ffw_teleop.vr_pose_math import mount_matrix, relative_goal
+from ffw_teleop.vr_calibration_math import average_pose, fit_motion, validate_translation, shared_world_axes
+from ffw_teleop.vr_pose_math import mount_matrix, relative_goal, headset_heading_axes, camera_to_head_bone
 from ffw_teleop.sharpa_vuer_publisher import WorldReferenceMixin
 
 
@@ -90,6 +90,111 @@ def test_manual_translation_axes_are_orthogonalized_with_warning():
     axes = Rotation.from_euler('xyz', fit['axes_rpy_deg'], degrees=True).as_matrix()
     assert np.allclose(axes @ axes.T, np.eye(3))
     assert np.linalg.det(axes) == pytest.approx(1.)
+
+
+def test_shared_heading_uses_gravity_instead_of_tilted_up_strokes():
+    neutral = np.eye(4)
+    recordings = {}
+    for side, heading in (('left', -.12), ('right', .12)):
+        forward = np.array([.15, np.cos(heading), np.sin(heading)])
+        left = np.array([-.1, -np.sin(heading), np.cos(heading)])
+        endpoints = []
+        for direction in (forward, left, np.array([.3, .2, .2])):
+            endpoint = neutral.copy()
+            endpoint[:3, 3] = .2*direction
+            endpoints.append((neutral.tolist(), endpoint.tolist()))
+        recordings[side] = {'translations': endpoints}
+    rpy, _ = shared_world_axes(recordings)
+    axes = Rotation.from_euler('xyz', rpy, degrees=True).as_matrix()
+    assert np.allclose(axes @ np.array([1., 0., 0.]), [0., 0., 1.])
+    assert np.allclose(axes @ np.array([0., 1., 0.]), [1., 0., 0.])
+    assert np.allclose(axes @ np.array([0., 0., 1.]), [0., 1., 0.])
+
+
+def test_gravity_calibration_accepts_mixed_up_stroke_without_mirroring_axes():
+    neutral = np.eye(4)
+    translations = []
+    for delta in ([.03, .2, 0.], [0., 0., .2], [-.03, .08, 0.]):
+        endpoint = neutral.copy()
+        endpoint[:3, 3] = delta
+        translations.append((neutral.copy(), endpoint))
+    _, _, _, rotations = fixture_motion()
+    fit = fit_motion(translations, rotations, gravity_heading=True)
+    axes = Rotation.from_euler('xyz', fit['axes_rpy_deg'], degrees=True).as_matrix()
+    assert np.allclose(axes @ np.array([1., 0., 0.]), [0., 0., 1.])
+    assert np.linalg.det(axes) == pytest.approx(1.)
+
+
+def test_starting_position_changes_origin_but_never_motion_direction():
+    axes = np.array([[0., 1., 0.], [0., 0., 1.], [1., 0., 0.]])
+    robot = mount_matrix([.3, .2, .8], [0., 20., 10.])
+    for start_xyz in ([0., 0., 0.], [2., -1., .4], [-.5, 1., 2.]):
+        initial = mount_matrix(start_xyz, [0., 0., 0.])
+        current = initial.copy()
+        current[:3, 3] += [0., .1, 0.]
+        goal = relative_goal(current, initial, robot, 1., axes)
+        assert goal[:3, 3]-robot[:3, 3] == pytest.approx([.1, 0., 0.])
+
+
+def test_headset_heading_survives_vr_world_yaw_changes_and_neck_pitch():
+    head = np.diag([-1., 1., -1.])
+    robot = np.eye(4)
+    original_delta = np.array([0., .1, 0.])
+    for yaw in (0., 90., 180., -135.):
+        reset = Rotation.from_rotvec(np.array([1., 0., 0.])*np.deg2rad(yaw)).as_matrix()
+        for pitch in (0., 80.):
+            current_head = reset @ head @ Rotation.from_euler('z', pitch, degrees=True).as_matrix()
+            axes = headset_heading_axes(current_head)
+            initial = np.eye(4)
+            current = initial.copy()
+            current[:3, 3] = reset @ original_delta
+            goal = relative_goal(current, initial, robot, 1., axes, -1.)
+            assert goal[:3, 3] == pytest.approx([.1, 0., 0.], abs=1e-12)
+
+
+def test_camera_heading_does_not_require_body_tracking():
+    raw_from_world = np.array([[0., 1., 0.], [0., 0., -1.], [-1., 0., 0.]])
+    raw_forward = raw_from_world @ np.array([0., 0., -1.])
+    head = raw_from_world @ camera_to_head_bone(np.eye(3))
+    axes = headset_heading_axes(head)
+    assert np.allclose(axes @ raw_forward, [1., 0., 0.])
+    assert np.allclose(axes @ np.array([1., 0., 0.]), [0., 0., 1.])
+
+
+def test_lateral_mirror_uses_same_basis_for_position_and_rotation():
+    initial = np.eye(4)
+    current = mount_matrix([.1, .2, .3], [15., 25., -20.])
+    result = relative_goal(current, initial, initial, 1., np.eye(3), -1.)
+    assert result[:3, 3] == pytest.approx([.1, -.2, .3])
+    mirror = np.diag([1., -1., 1.])
+    assert np.allclose(result[:3, :3], mirror @ current[:3, :3] @ mirror)
+    assert np.linalg.det(result[:3, :3]) == pytest.approx(1.)
+
+
+def test_lateral_mirror_reverses_yaw_but_preserves_pitch():
+    initial = np.eye(4)
+    yaw = mount_matrix([0., .1, 0.], [0., 0., 30.])
+    result = relative_goal(yaw, initial, initial, 1., np.eye(3), -1.)
+    assert result[:3, 3] == pytest.approx([0., -.1, 0.])
+    assert Rotation.from_matrix(result[:3, :3]).as_euler('xyz', degrees=True) == pytest.approx([0., 0., -30.])
+    pitch = mount_matrix([.1, 0., 0.], [0., 30., 0.])
+    result = relative_goal(pitch, initial, initial, 1., np.eye(3), -1.)
+    assert np.allclose(result, pitch)
+
+
+def test_correcting_previous_mirror_reverses_exactly_requested_axes():
+    initial = mount_matrix([.4, -.2, .8], [10., 20., -15.])
+    current = initial.copy()
+    current[:3, 3] += [.1, .2, .3]
+    current[:3, :3] = Rotation.from_rotvec([.12, -.2, .3]).as_matrix() @ initial[:3, :3]
+    robot = mount_matrix([.3, .1, .7], [-20., 5., 30.])
+    before = relative_goal(current, initial, robot, 1., np.eye(3), -1.)
+    after = relative_goal(current, initial, robot, 1., np.eye(3), 1.)
+    assert after[:3, 3]-robot[:3, 3] == pytest.approx(
+        (before[:3, 3]-robot[:3, 3])*[1., -1., 1.])
+    before_rotation = Rotation.from_matrix(before[:3, :3] @ robot[:3, :3].T).as_rotvec()
+    after_rotation = Rotation.from_matrix(after[:3, :3] @ robot[:3, :3].T).as_rotvec()
+    assert after_rotation == pytest.approx(before_rotation*[-1., 1., -1.])
 
 
 def test_direction_calibration_allows_wrist_rotation_during_translation():

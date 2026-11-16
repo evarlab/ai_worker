@@ -25,7 +25,9 @@ ContactGlove 3 Proで操作するブランチは`devel/contactgrove_sharpa`で�
 Quest 3で腕と指を同時に操作する保存ブランチは`devel/vr_contactgrove_sharpa_20261116`です。
 [普段の操作手順](ffw_teleop/OPERATION_SHARPA_VR.md)と
 [VR＋Sharpaの導入・詳細](ffw_teleop/VR_SHARPA.md)を参照してください。
+`./teleop_terminal.sh`でTerminatorを8分割し、各起動コマンドをEnter待ちで並べられます。
 校正は`./calibrate_vr.sh`、URDF確認は`./preview_vr.sh`、実機の開始・再開は`./resume_teleop.sh`です。
+開始・再開時は、実機の両腕をURDF初期姿勢へ移動してからVRの基準を登録します。
 腕と指の追従を一括停止する場合は、PCで`./stop_teleop.sh`を実行します。
 
 The SG2 follower can run with Sharpa Wave hands instead of the grippers, or with bare flanges, as one

@@ -11,7 +11,7 @@ from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import String
 import yaml
 
-from .vr_calibration_math import average_pose, fit_motion, validate_translation
+from .vr_calibration_math import average_pose, fit_motion, validate_translation, shared_world_axes
 from .vr_pose_math import pose_matrix
 
 
@@ -32,7 +32,7 @@ def recover_recordings(path):
                 continue
             translations = [tuple(np.asarray(p) for p in pair) for pair in event['translations']]
             rotations = [tuple(np.asarray(p) for p in pair) for pair in event['rotations']]
-            fit = fit_motion(translations, rotations)
+            fit = fit_motion(translations, rotations, gravity_heading=True)
         except (ValueError, KeyError, TypeError):
             continue
         side = event['side']
@@ -155,7 +155,7 @@ def main(args=None):
                     endpoint = capture(side, f'{label}: 手首中心を動かさず、{direction}に約45度回転。')
                     rotations.append((neutral, endpoint))
                 try:
-                    fit = fit_motion(translations, rotations)
+                    fit = fit_motion(translations, rotations, gravity_heading=True)
                     results[side] = fit
                     recordings[side] = {'translations': [[a.tolist(), b.tolist()] for a, b in translations],
                                         'rotations': [[a.tolist(), b.tolist()] for a, b in rotations]}
@@ -172,7 +172,11 @@ def main(args=None):
                           translations=[[a.tolist(), b.tolist()] for a, b in translations],
                           rotations=[[a.tolist(), b.tolist()] for a, b in rotations])
                     print(f'{label}の校正不成立: {error}\nこの手の6方向をやり直します。')
-        params = dict(motion_reference='world_v1')
+        shared_axes, heading_errors = shared_world_axes(recordings)
+        for fit in results.values():
+            fit['axes_rpy_deg'] = shared_axes
+        print(f'両手共通の水平座標を設定。上方向はVR重力基準。方向ばらつき最大{max(heading_errors):.1f}度')
+        params = dict(motion_reference='world_v1', axes_fit='gravity_aligned_shared_v1')
         for side, fit in results.items():
             for suffix in ('axes_rpy_deg', 'position_scale', 'mount_xyz'):
                 params[f'{side}_{suffix}'] = fit[suffix]

@@ -25,11 +25,32 @@ def mount_matrix(xyz, rpy_deg):
     return matrix
 
 
-def relative_goal(current, initial_vr, initial_robot, scale, axes=None):
+def headset_heading_axes(head_rotation, world_up=(1., 0., 0.)):
+    """ROBOTIS head bone has local +Z right; retain yaw, discard neck tilt."""
+    up = np.asarray(world_up, dtype=float)
+    up /= np.linalg.norm(up)
+    right = head_rotation[:, 2] - np.dot(head_rotation[:, 2], up)*up
+    if np.linalg.norm(right) < .2:
+        raise ValueError('Quest is tilted sideways too far to determine heading')
+    right /= np.linalg.norm(right)
+    forward = np.cross(up, right)
+    return np.vstack((forward, -right, up))
+
+
+def camera_to_head_bone(camera_rotation):
+    # Camera: +X right, +Y up, -Z forward. ROBOTIS head bone:
+    # +X down, +Y forward, +Z right.
+    return camera_rotation @ np.array([[0., 0., 1.], [-1., 0., 0.], [0., -1., 0.]])
+
+
+def relative_goal(current, initial_vr, initial_robot, scale, axes=None, position_y_sign=1.):
     axes = np.eye(3) if axes is None else axes
+    basis = np.diag([1., position_y_sign, 1.]) @ axes
     goal = np.eye(4)
-    goal[:3, 3] = initial_robot[:3, 3] + scale * axes @ (current[:3, 3] - initial_vr[:3, 3])
-    goal[:3, :3] = axes @ current[:3, :3] @ initial_vr[:3, :3].T @ axes.T @ initial_robot[:3, :3]
+    goal[:3, 3] = initial_robot[:3, 3] + scale * basis @ (current[:3, 3] - initial_vr[:3, 3])
+    # A reflected coordinate basis must also conjugate rotations. Reflecting
+    # position alone makes a lateral gesture and its wrist rotation disagree.
+    goal[:3, :3] = basis @ current[:3, :3] @ initial_vr[:3, :3].T @ basis.T @ initial_robot[:3, :3]
     return goal
 
 

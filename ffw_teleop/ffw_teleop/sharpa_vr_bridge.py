@@ -19,8 +19,9 @@ from std_srvs.srv import SetBool, Trigger
 import yaml
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
-from .vr_pose_math import bounded_goal, mount_matrix, pose_matrix, relative_goal
+from .vr_pose_math import bounded_goal, mount_matrix, pose_matrix, relative_goal, headset_heading_axes
 from .stop_signals import flush_holds, spin_until_stopped
+from .teleop_recording import SessionRecorder
 
 SIDES = ('left', 'right')
 
@@ -37,6 +38,7 @@ class SharpaVRBridge(Node):
                         calibration_file='',
                         motion_calibration_file='', world_reference_required=False,
                         preserve_orientation_reference=False,
+                        use_headset_heading=False, position_y_sign=1.0,
                         left_axes_rpy_deg=[0.0]*3, right_axes_rpy_deg=[0.0]*3,
                         left_position_scale=1.0, right_position_scale=1.0,
                         left_mount_xyz=[0.0]*3, right_mount_xyz=[0.0]*3,
@@ -71,10 +73,16 @@ class SharpaVRBridge(Node):
                 raise ValueError(f'{key} must be finite and positive')
         if not 0.0 <= self.p['squeeze_threshold'] <= 1.0:
             raise ValueError('squeeze_threshold must be in [0, 1]')
+        if self.p['position_y_sign'] not in (-1., 1.):
+            raise ValueError('position_y_sign must be +1 or -1')
         self.mounts = {s: mount_matrix(self.p[f'{s}_mount_xyz'], self.p[f'{s}_mount_rpy_deg'])
                        for s in SIDES}
         self.poses, self.grips, self.feedback, self.anchors = {}, {}, {}, {}
         self.orientation_references = {}
+        self.headset_pose = None
+        self.heading_registered = False
+        self.recording = SessionRecorder('vr-bridge')
+        self.recording.record('configuration', self.p)
         self.active = False
         self.filtered_goals = {}
         self.last_ik = {}
@@ -84,6 +92,7 @@ class SharpaVRBridge(Node):
         self.wait_reason = ''
         self.world_reference_seen = -math.inf
         self.create_subscription(String, '/vr/input/reference_frame', self.on_reference_frame, 10)
+        self.create_subscription(PoseStamped, '/vr/input/headset_pose', self.on_headset_pose, 10)
         self.model_state_pub = self.create_publisher(JointState, '/vr/model/joint_states', 10)
         self.goal_pubs = {}
         self.arm_pubs = {}
@@ -109,10 +118,16 @@ class SharpaVRBridge(Node):
         self.create_service(Trigger, '~/calibrate_mount', self.on_calibrate_mount)
         self.create_timer(1.0 / self.p['rate'], self.tick)
         self.get_logger().info(f'VR arms ready; dry_run={self.p["dry_run"]}; awaiting explicit activation')
+        self.get_logger().info(f'Telemetry: {self.recording.path}')
 
     @staticmethod
     def names(side):
         return [f'arm_{"l" if side == "left" else "r"}_joint{i}' for i in range(1, 8)]
+
+    def destroy_node(self):
+        if hasattr(self, 'recording'):
+            self.recording.close()
+        return super().destroy_node()
 
     def on_reference_frame(self, msg):
         if msg.data == 'world_v1':
@@ -122,7 +137,18 @@ class SharpaVRBridge(Node):
             if self.p['world_reference_required']:
                 self.stop('VR reference frame changed; recalibrate')
 
+    def on_headset_pose(self, msg):
+        self.recording.record('headset_pose', msg, every=.05)
+        try:
+            stamp = msg.header.stamp.sec+msg.header.stamp.nanosec/1e9
+            if msg.header.frame_id != 'base_link' or abs(self.get_clock().now().nanoseconds/1e9-stamp) > 2.:
+                return
+            self.headset_pose = (pose_matrix(msg.pose), time.monotonic())
+        except ValueError:
+            self.headset_pose = None
+
     def on_joints(self, msg):
+        self.recording.record('measured_joints', msg, every=.05)
         if len(msg.name) != len(msg.position) or not all(math.isfinite(v) for v in msg.position):
             self.feedback.clear()
             self.stop('Invalid robot joint feedback')
@@ -146,6 +172,7 @@ class SharpaVRBridge(Node):
             self.stop('Grip released or invalid')
 
     def on_pose(self, msg, side, kind):
+        self.recording.record(f'{kind}_pose_{side}', msg, every=.05)
         key = (kind, side)
         try:
             if msg.header.frame_id != 'base_link':
@@ -179,6 +206,11 @@ class SharpaVRBridge(Node):
         return now - stamp <= self.p['timeout'] and value >= self.p['squeeze_threshold']
 
     def ready(self, now):
+        needs_heading = self.p['use_headset_heading'] and (not self.heading_registered
+            or (not self.active and not self.p['preserve_orientation_reference']))
+        if needs_heading and (self.headset_pose is None or now-self.headset_pose[1] > 2.):
+            self.wait_reason = 'Quest heading missing/stale; Enter VR with the headset tracking'
+            return False
         if self.p['world_reference_required'] and now-self.world_reference_seen > 2.5:
             self.wait_reason = 'World-frame VR publisher missing/stale'
             return False
@@ -208,6 +240,14 @@ class SharpaVRBridge(Node):
             return True, 'Already following'
         if not self.ready(time.monotonic()):
             return False, self.wait_reason
+        if self.p['use_headset_heading'] and (not self.heading_registered
+                or not self.p['preserve_orientation_reference']):
+            try:
+                axes = headset_heading_axes(self.headset_pose[0][:3, :3])
+            except ValueError as error:
+                return False, str(error)
+            self.axes = {s: axes.copy() for s in SIDES}
+            self.heading_registered = True
         self.anchors = {s: (self.poses[('vr', s)][0].copy(), self.poses[('robot', s)][0].copy())
                         for s in SIDES}
         if self.p['preserve_orientation_reference']:
@@ -216,6 +256,8 @@ class SharpaVRBridge(Node):
                 if side not in self.orientation_references:
                     self.orientation_references[side] = (vr[:3, :3].copy(), robot[:3, :3].copy())
                 vr[:3, :3], robot[:3, :3] = self.orientation_references[side]
+        self.recording.record('anchor', {s: dict(vr=self.anchors[s][0], robot=self.anchors[s][1],
+            axes=self.axes[s], mount=self.mounts[s]) for s in SIDES})
         self.active = True
         self.armed_at = time.monotonic()
         self.last_tick = self.armed_at
@@ -290,6 +332,8 @@ class SharpaVRBridge(Node):
         return response
 
     def stop(self, reason):
+        if reason != self.last_stop_reason:
+            self.recording.record('stop', {'reason': reason, 'was_active': self.active})
         was_active = self.active
         self.active = False
         self.control_pub.publish(Bool(data=False))
@@ -305,6 +349,7 @@ class SharpaVRBridge(Node):
         self.last_stop_reason = reason
 
     def publish_arm(self, side, positions):
+        self.recording.record(f'arm_command_{side}', positions, every=.05)
         ns = int(self.p['trajectory_time'] * 1e9)
         point = JointTrajectoryPoint(positions=list(positions),
             time_from_start=Duration(sec=ns//1000000000, nanosec=ns%1000000000))
@@ -330,8 +375,12 @@ class SharpaVRBridge(Node):
         for side in SIDES:
             current = self.poses[('vr', side)][0]
             matrix = relative_goal(current, *self.anchors[side],
-                self.p['position_scale']*self.p[f'{side}_position_scale'], self.axes[side]) \
+                self.p['position_scale']*self.p[f'{side}_position_scale'], self.axes[side],
+                self.p['position_y_sign']) \
                 if self.p['relative_pose'] else current
+            if (self.p['preserve_orientation_reference']
+                    and time.monotonic()-self.armed_at < 3.5):
+                matrix = self.filtered_goals[side]
             matrix = bounded_goal(self.filtered_goals[side], matrix,
                                   self.p['goal_speed_mps']*dt, self.p['goal_speed_radps']*dt)
             self.filtered_goals[side] = matrix
@@ -343,6 +392,7 @@ class SharpaVRBridge(Node):
             (msg.pose.orientation.x, msg.pose.orientation.y,
              msg.pose.orientation.z, msg.pose.orientation.w) = q
             self.goal_pubs[side].publish(msg)
+            self.recording.record(f'goal_pose_{side}', msg, every=.05)
 
     def tick(self):
         now = time.monotonic()
@@ -373,5 +423,6 @@ def main(args=None):
                 node.stop('Bridge shutdown')
                 flush_holds([*node.arm_pubs.values(), node.control_pub])
             node.destroy_node()
+            node.recording.close()
         if rclpy.ok():
             rclpy.shutdown()

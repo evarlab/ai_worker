@@ -18,6 +18,8 @@ sharpa_vr_bridge:
     calibration_file: '~/.config/ai_worker/vr_mount_calibration.yaml'
     motion_calibration_file: '~/.config/ai_worker/vr_motion_calibration.yaml'
     world_reference_required: true
+    use_headset_heading: true  # capture Quest horizontal heading on every physical activation
+    position_y_sign: 1.0  # reverse the previous mirror: lateral translation, roll and yaw; preserve X/Z and pitch
     # Controller-frame transform to the wrist. Measure after mounting on the glove.
     left_mount_xyz: [0.0, 0.0, 0.0]
     right_mount_xyz: [0.0, 0.0, 0.0]

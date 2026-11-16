@@ -1,21 +1,19 @@
-# Recorded 2026-11-16. Example only; recalibrate for each mounting/VR reference.
-# Right-axis fit has about 16 degrees spread; right wrist-position correction is unavailable.
+# Example snapshot 2026-11-16 evening; both wrist offsets fall back to zero.
+# Runtime heading is registered from Quest on activation; recalibrate after mounting changes.
 sharpa_vr_bridge:
   ros__parameters:
     motion_reference: world_v1
-    left_axes_rpy_deg:
-    - -77.70756148109855
-    - -67.78169016188289
-    - -12.140043083767834
+    axes_fit: gravity_aligned_shared_v1
+    left_axes_rpy_deg: &id001
+    - -72.2060324672427
+    - -89.99999999999999
+    - 0.0
     left_position_scale: 1.0
     left_mount_xyz:
-    - 0.00757348952523705
-    - -0.017515213487189638
-    - 0.04699869699028756
-    right_axes_rpy_deg:
-    - -89.83342768080928
-    - -54.110997124349716
-    - 19.457841106626503
+    - 0.0
+    - 0.0
+    - 0.0
+    right_axes_rpy_deg: *id001
     right_position_scale: 1.0
     right_mount_xyz:
     - 0.0

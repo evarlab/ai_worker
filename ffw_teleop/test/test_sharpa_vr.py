@@ -272,3 +272,47 @@ def test_preview_reactivation_preserves_original_hand_orientation(bridge):
     assert np.allclose(n.anchors['left'][0][:3, :3], original)
     assert np.allclose(n.anchors['left'][1][:3, :3], original_robot)
     assert not np.allclose(n.anchors['left'][0][:3, :3], changed[:3, :3])
+
+
+def test_physical_stop_then_enable_uses_latest_vr_and_robot_as_reference(bridge):
+    from std_srvs.srv import SetBool
+    n = bridge
+    feed_bridge(n)
+    assert n.enable()[0]
+    assert n.on_enable(SetBool.Request(data=False), SetBool.Response()).success
+    feed_bridge(n)
+    expected = {}
+    for side in ('left', 'right'):
+        old = n.poses[('vr', side)]
+        current = mount_matrix([.4, .2, .8], [15., -20., 35.])
+        n.poses[('vr', side)] = (current, old[1], old[2])
+        old_robot = n.poses[('robot', side)]
+        robot = mount_matrix([.3, .1, .7], [-10., 5., 25.])
+        n.poses[('robot', side)] = (robot, old_robot[1], old_robot[2])
+        expected[side] = (current, robot)
+    assert n.on_enable(SetBool.Request(data=True), SetBool.Response()).success
+    for side, (current, robot) in expected.items():
+        assert np.allclose(n.anchors[side][0], current)
+        assert np.allclose(n.anchors[side][1], robot)
+        assert np.allclose(n.filtered_goals[side], robot)
+
+
+def test_activation_refreshes_headset_heading_after_vr_world_reset(bridge):
+    from geometry_msgs.msg import PoseStamped
+    from scipy.spatial.transform import Rotation
+    n = bridge
+    n.p['use_headset_heading'] = True
+    for yaw in (0., 180.):
+        n.stop('new activation')
+        feed_bridge(n)
+        msg = PoseStamped()
+        msg.header.frame_id = 'base_link'
+        msg.header.stamp = n.get_clock().now().to_msg()
+        reset = Rotation.from_rotvec(np.array([1., 0., 0.])*math.radians(yaw)).as_matrix()
+        head = reset @ np.diag([-1., 1., -1.])
+        q = Rotation.from_matrix(head).as_quat()
+        msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w = q.tolist()
+        n.on_headset_pose(msg)
+        assert n.enable()[0]
+        assert np.allclose(n.axes['left'] @ (reset @ np.array([0., 1., 0.])), [1., 0., 0.])
+        assert np.allclose(n.axes['left'], n.axes['right'])
