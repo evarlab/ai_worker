@@ -1,5 +1,4 @@
-# Snapshot of the tested gain-1.0 pose calibration. Device IDs omitted.
-# Pose/glove specific: verify offsets before hardware use.
+# Flexion calibration plus measured lateral reference; device IDs omitted.
 contactglove_sharpa:
   ros__parameters:
     auto_enable: true
@@ -10,7 +9,20 @@ contactglove_sharpa:
     hands: both
     horizon: 0.04
     host: 127.0.0.1
+    include_abduction: true
     input_mode: ros
+    left_abduction_gains:
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    left_abduction_offsets:
+    - 0.7948500382054242
+    - 0.2552957298059279
+    - 0.19223342527132833
+    - 0.10322144533912571
+    - 0.08716049934233036
     left_gains:
     - 1.0
     - 1.0
@@ -81,6 +93,18 @@ contactglove_sharpa:
     max_speed: 0.0
     port: 25791
     rate: 60.0
+    right_abduction_gains:
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    - 1.0
+    right_abduction_offsets:
+    - -0.1754822607742097
+    - 0.38791716616079525
+    - 0.2583462413373368
+    - 0.2478380543177732
+    - 0.4168012065721853
     right_gains:
     - 1.0
     - 1.0

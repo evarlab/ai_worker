@@ -26,7 +26,7 @@ ros2 launch contact_glove contact_glove.launch.xml
 実機とグローブのID、現在の対応姿勢で求めたoffsetを含む。
 
 - `input_mode: ros`：公式ROSブリッジの`/contact_glove/{left,right}/ergonomics`を購読。
-- `controlled_fingers: all`：親指を含む屈曲15関節。
+- `controlled_fingers: all`、`include_abduction: true`：親指を含む屈曲15＋横振り5関節。
 - `left_gains` / `right_gains`：全て1.0（等倍）。
 - `clamp_targets: false`：追加のソフト角度制限を無効。
 - `max_speed: 0.0`：ソフトの指令変化率制限を無効。
@@ -35,7 +35,8 @@ ros2 launch contact_glove contact_glove.launch.xml
 ハンドのURDF可動限界は実機ドライバで適用する。
 ハンド本体の保護機能も有効なまま。実機bringupの`hand_speed_coeff`は
 ドライバ対応上限の`0.5`で起動している。
-AA軸など残り7関節は保持するため、22自由度の完全再現ではない。
+`thumb_CMC_AA`と`pinky_CMC`は保持するため、22自由度の完全再現ではない。
+横振りの対応表・5要素のgain/offsetは[VR＋Sharpa手順](VR_SHARPA.md#グローブの横振り)を参照。
 
 PC側の常駐処理を手動操作する場合:
 
@@ -219,12 +220,14 @@ ros2 service call /contactglove_sharpa/enable std_srvs/srv/SetBool '{data: false
 
 Sharpa全22関節中、残りの7関節（CMC/MCPのAA、pinky CMC）は指令に含めず、
 既存controllerのpartial-joint機能で保持する。最初にその姿勢を確認する。
-SDKのTiltをそのままSharpaのAA軸に割り当てることはしない。
+`include_abduction: false`ではTiltを使わず、AA軸など7関節を保持する。
+`true`ではSDKのMCP Tiltを5指のMCP_AAへ割り当て、専用gain/offsetで調整する。
 完全な22自由度の姿勢再現・指先位置IK・触覚フィードバックは今回の範囲外。
 
 `controlled_fingers: four_fingers`では親指の3関節も指令から除き、
 人差し指・中指・薬指・小指の12関節だけを追従させる。
-既定の`all`は親指を含む15関節。
+既定の`all`は親指を含み、横振り無効時は15、有効時は20関節。
+`four_fingers`で横振りも有効なら、親指を除いた16関節を指令する。
 生の角度が負であることだけでは異常とは判断できないため、表示と実測を確認し、
 同じ姿勢のグローブ角度と実機角度からoffsetを合わせる。
 最初の制限付き実機確認に使用した設定はPCの`/tmp/contactglove-sharpa-live.yaml`に保存し、
@@ -233,7 +236,7 @@ SDKのTiltをそのままSharpaのAA軸に割り当てることはしない。
 
 ## 通信途絶・再開・制限
 
-- 起動時は無効。有効化は新鮮な追跡成功フレームと15関節分のfeedbackが揃った場合のみ。
+- 起動時は無効。有効化は新鮮な追跡成功フレームと選択した全関節分のfeedbackが揃った場合のみ。
 - 現在の実測姿勢から目標を`max_speed`で徐々に更新する。
   これは指令の変化率であり、実機の実速度保証ではない。
 - SDKの`NotAttempted`は新しい指令値として使わず、最後の追跡成功フレームの

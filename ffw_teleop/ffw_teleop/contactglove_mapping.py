@@ -10,6 +10,13 @@ FLEXION = (
     ('pinky_MCP_FE', 16, 1.2), ('pinky_PIP', 17, 1.2), ('pinky_DIP', 18, 1.0),
 )
 
+# SDK V2 calls these MCP tilt angles. CMC abduction and pinky CMC remain held.
+ABDUCTION = (
+    ('thumb_MCP_AA', 3, 0.35), ('index_MCP_AA', 7, 0.35),
+    ('middle_MCP_AA', 11, 0.35), ('ring_MCP_AA', 15, 0.35),
+    ('pinky_MCP_AA', 19, 0.35),
+)
+
 
 def targets(values, gains, offsets, lower=None, upper=None, clamp=True):
     if len(values) != 20 or not all(math.isfinite(x) for x in values):
@@ -24,6 +31,15 @@ def targets(values, gains, offsets, lower=None, upper=None, clamp=True):
 
 def slew(current, target, max_step):
     return [a + max(-max_step, min(max_step, b - a)) for a, b in zip(current, target)]
+
+
+def abduction_targets(values, gains, offsets, clamp=True):
+    if len(values) != 20 or not all(math.isfinite(x) for x in values):
+        raise ValueError('Expected 20 finite ergonomics angles in degrees')
+    result = [math.radians(values[i]) * gain + offset
+              for (_, i, _), gain, offset in zip(ABDUCTION, gains, offsets)]
+    return [max(-limit, min(limit, value)) for value, (_, _, limit) in zip(result, ABDUCTION)] \
+        if clamp else result
 
 
 def ergonomics_frame(msg):

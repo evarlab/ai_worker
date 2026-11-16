@@ -4,6 +4,7 @@ contactglove_sharpa:
     glove_namespace: /contact_glove
     hands: both
     controlled_fingers: all
+    include_abduction: true  # MCP tilt -> five MCP_AA joints; calibrate lateral offsets too.
     auto_enable: true
     dry_run: true  # Set false and specify both glove IDs for hardware output.
     left_glove_id: ''

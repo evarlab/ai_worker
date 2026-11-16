@@ -6,12 +6,14 @@ import time
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
+from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import JointState
 from std_srvs.srv import SetBool
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 
-from .contactglove_mapping import FLEXION, ergonomics_frame, slew, targets
+from .contactglove_mapping import ABDUCTION, FLEXION, abduction_targets, ergonomics_frame, slew, targets
+from .stop_signals import flush_holds, spin_until_stopped
 
 
 class ContactGloveSharpa(Node):
@@ -21,6 +23,9 @@ class ContactGloveSharpa(Node):
                         controlled_fingers='all',
                         input_mode='sdk', glove_namespace='/contact_glove',
                         auto_enable=False, clamp_targets=True,
+                        include_abduction=False,
+                        left_abduction_gains=[1.0]*5, right_abduction_gains=[1.0]*5,
+                        left_abduction_offsets=[0.0]*5, right_abduction_offsets=[0.0]*5,
                         left_glove_id='', right_glove_id='', rate=30.0,
                         timeout=0.3, max_frame_age=0.5, max_speed=0.5,
                         horizon=0.1, dry_run=True,
@@ -34,13 +39,19 @@ class ContactGloveSharpa(Node):
         self.sides = ('left', 'right') if self.p['hands'] == 'both' else (self.p['hands'],)
         if self.p['controlled_fingers'] not in ('all', 'four_fingers'):
             raise ValueError('controlled_fingers must be all or four_fingers')
-        self.indices = list(range(15)) if self.p['controlled_fingers'] == 'all' else list(range(3, 15))
+        self.mapping = FLEXION + ABDUCTION if self.p['include_abduction'] else FLEXION
+        self.indices = [i for i, (name, _, _) in enumerate(self.mapping)
+                        if self.p['controlled_fingers'] == 'all' or not name.startswith('thumb')]
         for key in ('rate', 'timeout', 'max_frame_age', 'horizon'):
             if not math.isfinite(self.p[key]) or self.p[key] <= 0:
                 raise ValueError(f'{key} must be finite and positive')
         if not math.isfinite(self.p['max_speed']) or self.p['max_speed'] < 0:
             raise ValueError('max_speed must be nonnegative; 0 disables target slew limiting')
         for side in self.sides:
+            for kind in ('abduction_gains', 'abduction_offsets'):
+                v = self.p[f'{side}_{kind}']
+                if len(v) != 5 or not all(math.isfinite(x) for x in v):
+                    raise ValueError(f'{side}_{kind} must contain 5 finite numbers')
             for kind in ('gains', 'offsets', 'lower', 'upper'):
                 v = self.p[f'{side}_{kind}']
                 if len(v) != 15 or not all(math.isfinite(x) for x in v):
@@ -99,7 +110,7 @@ class ContactGloveSharpa(Node):
             f'dry_run={self.p["dry_run"]}. Enable with ~/enable after checking data.')
 
     def names(self, side):
-        return [f'{side}_{FLEXION[i][0]}' for i in self.indices]
+        return [f'{side}_{self.mapping[i][0]}' for i in self.indices]
 
     def on_ros_frame(self, msg, expected):
         if ('left' if msg.is_left else 'right') == expected:
@@ -134,6 +145,10 @@ class ContactGloveSharpa(Node):
                 goal = targets(frame.values, self.p[f'{side}_gains'],
                                self.p[f'{side}_offsets'], self.p[f'{side}_lower'],
                                self.p[f'{side}_upper'], clamp=self.p['clamp_targets'])
+                if self.p['include_abduction']:
+                    goal += abduction_targets(frame.values, self.p[f'{side}_abduction_gains'],
+                                              self.p[f'{side}_abduction_offsets'],
+                                              clamp=self.p['clamp_targets'])
                 goal = [goal[i] for i in self.indices]
             except (ValueError, TypeError):
                 self.frames.pop(side, None)
@@ -168,7 +183,12 @@ class ContactGloveSharpa(Node):
 
     def stop(self):
         if self.enabled and rclpy.ok():
+            now = time.monotonic()
             for side, values in self.command.items():
+                names = self.names(side)
+                if all(n in self.feedback and now-self.feedback[n][1] <= self.p['timeout']
+                       for n in names):
+                    values = [self.feedback[n][0] for n in names]
                 self.publish(side, values)
         self.enabled = False
 
@@ -221,17 +241,18 @@ class ContactGloveSharpa(Node):
 
     def close(self):
         self.stop()
+        flush_holds(self.publishers_.values())
         if self.client is not None:
             self.client.disconnect(self.host)
             self.client.close()
 
 
 def main(args=None):
-    rclpy.init(args=args)
+    rclpy.init(args=args, signal_handler_options=SignalHandlerOptions.NO)
     node = None
     try:
         node = ContactGloveSharpa()
-        rclpy.spin(node)
+        spin_until_stopped(node)
     except KeyboardInterrupt:
         pass
     finally:

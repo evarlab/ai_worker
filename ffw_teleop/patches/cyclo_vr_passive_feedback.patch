@@ -1,0 +1,24 @@
+--- a/cyclo_motion_controller_ros/src/nodes/ai_worker/vr_controller_node.cpp
++++ b/cyclo_motion_controller_ros/src/nodes/ai_worker/vr_controller_node.cpp
+@@ -657,10 +657,17 @@
+     Eigen::VectorXd q_feedback =
+       (q_desired_.size() == q_.size()) ? q_desired_ : q_;
+ 
+-    // If lift is commanded by another node, use measured lift state for
+-    // internal model consistency.
+-    if (lift_joint_index_ >= 0 && lift_joint_index_ < q_feedback.size()) {
+-      q_feedback[lift_joint_index_] = q_[lift_joint_index_];
++    // Only the arms belong to VR. Fingers, head, lift and base are passive
++    // here and must follow measured state (e.g. ContactGlove controls fingers).
++    // The generated Sharpa VR model gives these joints zero velocity bounds.
++    for (int i = 0; i < q_feedback.size(); ++i) {
++      const auto & name = model_joint_names_[i];
++      if (std::find(left_arm_joints_.begin(), left_arm_joints_.end(), name) ==
++          left_arm_joints_.end() &&
++          std::find(right_arm_joints_.begin(), right_arm_joints_.end(), name) ==
++          right_arm_joints_.end()) {
++        q_feedback[i] = q_[i];
++      }
+     }
+ 
+             // Control loop is executing - update kinematics solver with feedback state

@@ -34,6 +34,8 @@ setup(
             'keyborad_control = ffw_teleop.keyboard_control:main',
             'mobile_teleop = ffw_teleop.mobile_teleop:main',
             'contactglove_sharpa = ffw_teleop.contactglove_sharpa:main',
+            'sharpa_vr_bridge = ffw_teleop.sharpa_vr_bridge:main',
+            'sharpa_vuer_publisher = ffw_teleop.sharpa_vuer_publisher:main',
         ],
     },
 )

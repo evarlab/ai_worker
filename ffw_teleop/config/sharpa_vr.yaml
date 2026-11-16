@@ -1,0 +1,68 @@
+sharpa_vr_bridge:
+  ros__parameters:
+    dry_run: true  # first inspect /vr/preview/{left,right}/joint_trajectory
+    require_squeeze: false  # controllers are mounted on gloves; activate/stop from PC
+    squeeze_threshold: 0.8
+    timeout: 0.3
+    feedback_timeout: 0.5
+    rate: 50.0
+    relative_pose: true  # anchor current VR pose to the measured robot wrists on activation
+    position_scale: 1.0
+    trajectory_time: 0.05
+    max_pose_step_m: 0.8
+    max_pose_step_deg: 170.0
+    goal_speed_mps: 0.8
+    goal_speed_radps: 3.0
+    ik_timeout: 1.0
+    startup_grace: 4.0
+    calibration_file: '~/.config/ai_worker/vr_mount_calibration.yaml'
+    # Controller-frame transform to the wrist. Measure after mounting on the glove.
+    left_mount_xyz: [0.0, 0.0, 0.0]
+    right_mount_xyz: [0.0, 0.0, 0.0]
+    left_mount_rpy_deg: [0.0, 0.0, 0.0]
+    right_mount_rpy_deg: [0.0, 0.0, 0.0]
+vr_controller:
+  ros__parameters:
+    control_frequency: 30.0
+    time_step: 0.03333333333333333
+    trajectory_time: 0.05
+    kp_position: 20.0
+    kp_orientation: 20.0
+    weight_position: 10.0
+    weight_orientation: 1.0
+    weight_elbow_position: 0.0  # controller mounts do not provide an elbow reference
+    weight_damping: 0.1
+    collision_buffer: 0.05
+    collision_safe_distance: 0.02
+    slack_penalty: 1000.0
+    cbf_alpha: 50.0
+    joint_state_timeout: 0.5
+    joint_states_topic: /vr/model/joint_states
+    right_traj_topic: /vr/ik/right/joint_trajectory
+    left_traj_topic: /vr/ik/left/joint_trajectory
+    right_raw_traj_topic: /vr/unused/right/gripper
+    left_raw_traj_topic: /vr/unused/left/gripper
+    lift_topic: /vr/unused/lift
+    lift_vel_bound: 0.0
+    r_goal_pose_topic: /vr/right/goal_pose
+    l_goal_pose_topic: /vr/left/goal_pose
+    r_elbow_pose_topic: /vr/unused/right/elbow
+    l_elbow_pose_topic: /vr/unused/left/elbow
+    r_gripper_pose_topic: /vr/state/right/wrist_pose
+    l_gripper_pose_topic: /vr/state/left/wrist_pose
+    r_gripper_name: arm_r_link7
+    l_gripper_name: arm_l_link7
+    r_elbow_name: arm_r_link4
+    l_elbow_name: arm_l_link4
+    # No gripper joint is present, and VR never owns Sharpa finger joints.
+    right_gripper_joint: ''
+    left_gripper_joint: ''
+    startup_ref_pos_threshold: 0.10
+    startup_ref_ori_threshold_deg: 30.0
+    reactivate_topic: /vr/control/reactivate
+reference_checker:
+  ros__parameters:
+    ref_pos_jump_threshold: 0.1
+    ref_ori_jump_threshold_deg: 30.0
+    r_goal_pose_topic: /vr/right/goal_pose
+    l_goal_pose_topic: /vr/left/goal_pose

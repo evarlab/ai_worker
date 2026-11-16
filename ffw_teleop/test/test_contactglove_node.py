@@ -85,6 +85,17 @@ def test_four_fingers_leave_thumb_out_of_commands(node):
     assert len(node.command['right']) == 12
 
 
+def test_stop_replaces_unreached_goal_with_measured_pose(node, monkeypatch):
+    feed(node)
+    assert enable(node).success
+    node.command['right'] = [0.8]*15
+    sent = []
+    monkeypatch.setattr(node, 'publish', lambda side, values: sent.append(list(values)))
+    node.stop()
+    assert sent == [[0.2]*15]
+    assert not node.enabled
+
+
 def test_ros_bridge_auto_start_stop_and_relaunch(monkeypatch):
     messages = pytest.importorskip('contact_glove_msgs.msg')
     rclpy.init(domain_id=99, args=['--ros-args', '-p', 'input_mode:=ros',
@@ -126,6 +137,29 @@ def test_ros_bridge_auto_start_stop_and_relaunch(monkeypatch):
         n.on_ros_frame(msg, 'right')
         n.tick()
         assert not n.enabled
+    finally:
+        n.close()
+        n.destroy_node()
+        rclpy.shutdown()
+
+
+def test_abduction_adds_five_lateral_joints(monkeypatch):
+    monkeypatch.setattr(sdk.ContactGloveClient, 'connect_to_host', lambda *args: None)
+    monkeypatch.setattr(sdk.ContactGloveClient, 'disconnect', lambda *args: None)
+    rclpy.init(domain_id=99, args=['--ros-args', '-p', 'include_abduction:=true',
+                                 '-p', 'clamp_targets:=false'])
+    n = ContactGloveSharpa()
+    try:
+        frame = sdk.ErgonomicsData(id='test-right', is_left=False,
+                                  timestamp_ms=int(time.time()*1000), values=[0.0]*20)
+        frame.values[7] = -10.0
+        n.on_frame(frame)
+        assert len(n.names('right')) == 20
+        goal = dict(zip(n.names('right'), n.frames['right'][3]))
+        assert goal['right_index_MCP_AA'] == pytest.approx(-3.141592653589793/18)
+        assert 'right_thumb_MCP_AA' in goal
+        assert 'right_thumb_CMC_AA' not in goal
+        assert 'right_pinky_CMC' not in goal
     finally:
         n.close()
         n.destroy_node()

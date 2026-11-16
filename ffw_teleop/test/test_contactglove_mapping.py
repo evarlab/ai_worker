@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from ffw_teleop.contactglove_mapping import FLEXION, slew, targets
+from ffw_teleop.contactglove_mapping import ABDUCTION, FLEXION, abduction_targets, slew, targets
 
 
 def test_sdk_order_and_degrees():
@@ -38,3 +38,12 @@ def test_configured_joint_envelope():
 def test_software_angle_clamp_can_be_disabled():
     assert targets([90.] * 20, [1.] * 15, [0.] * 15,
                    clamp=False) == pytest.approx([math.pi / 2] * 15)
+
+
+def test_sideways_mapping_uses_tilt_and_preserves_negative_angles():
+    angles = [0.0]*20
+    for i, (_, source, _) in enumerate(ABDUCTION):
+        angles[source] = -10.0 * (i+1)
+    values = abduction_targets(angles, [1.0]*5, [0.1]*5, clamp=False)
+    assert values == pytest.approx([math.radians(-10*(i+1))+.1 for i in range(5)])
+    assert len({name for name, _, _ in FLEXION+ABDUCTION}) == 20
