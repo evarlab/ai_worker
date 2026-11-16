@@ -32,6 +32,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'lift_keyboard = ffw_teleop.lift_keyboard:main',
+            'record_rosbag = ffw_teleop.record_rosbag:main',
+            'replay_rosbag = ffw_teleop.replay_rosbag:main',
             'keyborad_control = ffw_teleop.keyboard_control:main',
             'mobile_teleop = ffw_teleop.mobile_teleop:main',
             'contactglove_sharpa = ffw_teleop.contactglove_sharpa:main',

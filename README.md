@@ -29,6 +29,8 @@ Quest 3で腕と指を同時に操作する保存ブランチは`devel/vr_contac
 校正は`./calibrate_vr.sh`、URDF確認は`./preview_vr.sh`、実機の開始・再開は`./resume_teleop.sh`です。
 開始・再開時は、実機の両腕をURDF初期姿勢へ移動してからVRの基準を登録します。
 腕と指の追従を一括停止する場合は、PCで`./stop_teleop.sh`を実行します。
+昇降の独立操作、RGB-D・関節・電流のrosbag記録、RVizと実機での再生は
+[記録・再生手順](RECORDING_REPLAY.md)を参照してください。
 
 The SG2 follower can run with Sharpa Wave hands instead of the grippers, or with bare flanges, as one
 ros2_control robot: `ros2 launch ffw_bringup ffw_sg2_sharpa_follower_ai.launch.py`. Setup, launch

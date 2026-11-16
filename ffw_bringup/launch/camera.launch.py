@@ -31,6 +31,7 @@ def generate_launch_description():
 
     head_camera_type = LaunchConfiguration('head_camera_type')
     auto_assign_cameras = LaunchConfiguration('auto_assign_cameras')
+    colorize_depth = LaunchConfiguration('colorize_depth')
 
     is_zed_head = PythonExpression(["'", head_camera_type, "' == 'zed'"])
     enable_realsense_head = PythonExpression(
@@ -49,10 +50,15 @@ def generate_launch_description():
         launch_arguments={
             'enable_head_camera': enable_realsense_head,
             'auto_assign_cameras': auto_assign_cameras,
+            'colorizer.enable1': colorize_depth,
+            'colorizer.enable2': colorize_depth,
         }.items(),
     )
 
     return LaunchDescription([
+        DeclareLaunchArgument(
+            'colorize_depth', default_value='true', choices=['true', 'false'],
+            description='Set false to retain metric RealSense depth for RGB-D recording.'),
         DeclareLaunchArgument(
             'head_camera_type',
             default_value='zed',

@@ -1,0 +1,41 @@
+# First available topic in each candidate list is selected at recording start.
+required:
+  joint_states: [/joint_states]
+  motor_interfaces: [/dynamic_joint_states]
+  robot_description: [/robot_description]
+cameras:
+  left:
+    rgb: [/camera_left/camera_left/color/image_rect_raw, /camera_left/camera_left/color/image_raw]
+    depth: [/camera_left/camera_left/aligned_depth_to_color/image_raw, /camera_left/camera_left/depth/image_rect_raw]
+    rgb_info: [/camera_left/camera_left/color/camera_info]
+    depth_info: [/camera_left/camera_left/aligned_depth_to_color/camera_info, /camera_left/camera_left/depth/camera_info]
+  right:
+    rgb: [/camera_right/camera_right/color/image_rect_raw, /camera_right/camera_right/color/image_raw]
+    depth: [/camera_right/camera_right/aligned_depth_to_color/image_raw, /camera_right/camera_right/depth/image_rect_raw]
+    rgb_info: [/camera_right/camera_right/color/camera_info]
+    depth_info: [/camera_right/camera_right/aligned_depth_to_color/camera_info, /camera_right/camera_right/depth/camera_info]
+  head:
+    rgb: [/zed/zed_node/rgb/image_rect_color, /zed/zed/rgb/image_rect_color, /camera_head/camera_head/color/image_raw]
+    depth: [/zed/zed_node/depth/depth_registered, /zed/zed/depth/depth_registered, /camera_head/camera_head/aligned_depth_to_color/image_raw, /camera_head/camera_head/depth/image_rect_raw]
+    rgb_info: [/zed/zed_node/rgb/camera_info, /zed/zed/rgb/camera_info, /camera_head/camera_head/color/camera_info]
+    depth_info: [/zed/zed_node/depth/camera_info, /zed/zed/depth/camera_info, /camera_head/camera_head/aligned_depth_to_color/camera_info, /camera_head/camera_head/depth/camera_info]
+extra_topics:
+  - /tf
+  - /tf_static
+  - /arm_l_controller/joint_trajectory
+  - /arm_r_controller/joint_trajectory
+  - /hand_l_controller/joint_trajectory
+  - /hand_r_controller/joint_trajectory
+  - /lift_controller/joint_trajectory
+  - /head_controller/joint_trajectory
+  - /arm_l_controller/controller_state
+  - /arm_r_controller/controller_state
+  - /hand_l_controller/controller_state
+  - /hand_r_controller/controller_state
+  - /lift_controller/controller_state
+  - /head_controller/controller_state
+  - /ffw_follower/dxl_state
+  - /ffw_base/dxl_state
+  - /ai_worker/battery/left/state
+  - /ai_worker/battery/right/state
+  - /diagnostics
