@@ -14,7 +14,7 @@ from rclpy.signals import SignalHandlerOptions
 from rclpy.parameter import Parameter
 from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, Float32, String
 from std_srvs.srv import SetBool, Trigger
 import yaml
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
@@ -35,6 +35,10 @@ class SharpaVRBridge(Node):
                         goal_speed_mps=0.8, goal_speed_radps=3.0,
                         ik_timeout=1.0, startup_grace=4.0,
                         calibration_file='',
+                        motion_calibration_file='', world_reference_required=False,
+                        preserve_orientation_reference=False,
+                        left_axes_rpy_deg=[0.0]*3, right_axes_rpy_deg=[0.0]*3,
+                        left_position_scale=1.0, right_position_scale=1.0,
                         left_mount_xyz=[0.0]*3, right_mount_xyz=[0.0]*3,
                         left_mount_rpy_deg=[0.0]*3, right_mount_rpy_deg=[0.0]*3)
         self.p = {k: self.declare_parameter(k, v).value for k, v in defaults.items()}
@@ -47,7 +51,20 @@ class SharpaVRBridge(Node):
                     if key in saved:
                         self.p[key] = [float(x) for x in saved[key]]
                         self.set_parameters([Parameter(key, value=self.p[key])])
+        motion_file = self.p['motion_calibration_file']
+        if motion_file and Path(motion_file).expanduser().is_file():
+            saved = yaml.safe_load(Path(motion_file).expanduser().read_text())['sharpa_vr_bridge']['ros__parameters']
+            if saved.get('motion_reference') != 'world_v1':
+                raise ValueError('Motion calibration must use world_v1 coordinates')
+            self.p['world_reference_required'] = True
+            for side in SIDES:
+                for suffix in ('axes_rpy_deg', 'position_scale', 'mount_xyz'):
+                    key = f'{side}_{suffix}'
+                    self.p[key] = saved[key]
+                    self.set_parameters([Parameter(key, value=self.p[key])])
+        self.axes = {s: mount_matrix([0.0]*3, self.p[f'{s}_axes_rpy_deg'])[:3, :3] for s in SIDES}
         for key in ('timeout', 'feedback_timeout', 'rate', 'position_scale',
+                    'left_position_scale', 'right_position_scale',
                     'trajectory_time', 'max_pose_step_m', 'max_pose_step_deg',
                     'goal_speed_mps', 'goal_speed_radps', 'ik_timeout', 'startup_grace'):
             if not math.isfinite(self.p[key]) or self.p[key] <= 0:
@@ -57,6 +74,7 @@ class SharpaVRBridge(Node):
         self.mounts = {s: mount_matrix(self.p[f'{s}_mount_xyz'], self.p[f'{s}_mount_rpy_deg'])
                        for s in SIDES}
         self.poses, self.grips, self.feedback, self.anchors = {}, {}, {}, {}
+        self.orientation_references = {}
         self.active = False
         self.filtered_goals = {}
         self.last_ik = {}
@@ -64,6 +82,8 @@ class SharpaVRBridge(Node):
         self.last_tick = time.monotonic()
         self.last_stop_reason = ''
         self.wait_reason = ''
+        self.world_reference_seen = -math.inf
+        self.create_subscription(String, '/vr/input/reference_frame', self.on_reference_frame, 10)
         self.model_state_pub = self.create_publisher(JointState, '/vr/model/joint_states', 10)
         self.goal_pubs = {}
         self.arm_pubs = {}
@@ -93,6 +113,14 @@ class SharpaVRBridge(Node):
     @staticmethod
     def names(side):
         return [f'arm_{"l" if side == "left" else "r"}_joint{i}' for i in range(1, 8)]
+
+    def on_reference_frame(self, msg):
+        if msg.data == 'world_v1':
+            self.world_reference_seen = time.monotonic()
+        else:
+            self.world_reference_seen = -math.inf
+            if self.p['world_reference_required']:
+                self.stop('VR reference frame changed; recalibrate')
 
     def on_joints(self, msg):
         if len(msg.name) != len(msg.position) or not all(math.isfinite(v) for v in msg.position):
@@ -151,6 +179,9 @@ class SharpaVRBridge(Node):
         return now - stamp <= self.p['timeout'] and value >= self.p['squeeze_threshold']
 
     def ready(self, now):
+        if self.p['world_reference_required'] and now-self.world_reference_seen > 2.5:
+            self.wait_reason = 'World-frame VR publisher missing/stale'
+            return False
         for side in SIDES:
             for kind in ('vr', 'robot'):
                 sample = self.poses.get((kind, side))
@@ -179,6 +210,12 @@ class SharpaVRBridge(Node):
             return False, self.wait_reason
         self.anchors = {s: (self.poses[('vr', s)][0].copy(), self.poses[('robot', s)][0].copy())
                         for s in SIDES}
+        if self.p['preserve_orientation_reference']:
+            for side in SIDES:
+                vr, robot = self.anchors[side]
+                if side not in self.orientation_references:
+                    self.orientation_references[side] = (vr[:3, :3].copy(), robot[:3, :3].copy())
+                vr[:3, :3], robot[:3, :3] = self.orientation_references[side]
         self.active = True
         self.armed_at = time.monotonic()
         self.last_tick = self.armed_at
@@ -245,6 +282,7 @@ class SharpaVRBridge(Node):
             self.p[key] = value
             self.set_parameters([Parameter(key, value=value)])
         self.anchors.clear()
+        self.orientation_references.clear()
         self.filtered_goals.clear()
         response.success = True
         response.message = 'Mount orientations calibrated to measured wrists; following remains stopped'
@@ -291,7 +329,8 @@ class SharpaVRBridge(Node):
     def publish_goals(self, dt):
         for side in SIDES:
             current = self.poses[('vr', side)][0]
-            matrix = relative_goal(current, *self.anchors[side], self.p['position_scale']) \
+            matrix = relative_goal(current, *self.anchors[side],
+                self.p['position_scale']*self.p[f'{side}_position_scale'], self.axes[side]) \
                 if self.p['relative_pose'] else current
             matrix = bounded_goal(self.filtered_goals[side], matrix,
                                   self.p['goal_speed_mps']*dt, self.p['goal_speed_radps']*dt)

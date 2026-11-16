@@ -22,8 +22,10 @@ To use the Docker image for running ROS packages and Physical AI tools with the 
 
 ContactGlove 3 Proで操作するブランチは`devel/contactgrove_sharpa`です。
 導入・mock確認・実機操作は[日本語手順](ffw_teleop/CONTACTGLOVE_SHARPA.md)を参照してください。
-Quest 3で腕と指を同時に操作する構成は`devel/vr_contactgrove_sharpa`です。
-[VR＋Sharpaの手順](ffw_teleop/VR_SHARPA.md)を参照してください。
+Quest 3で腕と指を同時に操作する保存ブランチは`devel/vr_contactgrove_sharpa_20261116`です。
+[普段の操作手順](ffw_teleop/OPERATION_SHARPA_VR.md)と
+[VR＋Sharpaの導入・詳細](ffw_teleop/VR_SHARPA.md)を参照してください。
+校正は`./calibrate_vr.sh`、URDF確認は`./preview_vr.sh`、実機の開始・再開は`./resume_teleop.sh`です。
 腕と指の追従を一括停止する場合は、PCで`./stop_teleop.sh`を実行します。
 
 The SG2 follower can run with Sharpa Wave hands instead of the grippers, or with bare flanges, as one

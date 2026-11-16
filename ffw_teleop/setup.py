@@ -18,6 +18,7 @@ setup(
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
+        ('share/' + package_name + '/config', glob('config/*.rviz')),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
@@ -36,6 +37,7 @@ setup(
             'contactglove_sharpa = ffw_teleop.contactglove_sharpa:main',
             'sharpa_vr_bridge = ffw_teleop.sharpa_vr_bridge:main',
             'sharpa_vuer_publisher = ffw_teleop.sharpa_vuer_publisher:main',
+            'calibrate_sharpa_vr = ffw_teleop.calibrate_vr:main',
         ],
     },
 )

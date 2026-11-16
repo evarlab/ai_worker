@@ -241,3 +241,34 @@ def test_mount_calibration_removes_neutral_inward_tilt_and_keeps_arms_stopped(br
     assert saved['sharpa_vr_bridge']['ros__parameters']['left_mount_rpy_deg'] == pytest.approx([-30., 0., 0.])
     assert n.enable()[0]
     assert np.allclose(n.filtered_goals['left'][:3, :3], np.eye(3))
+
+
+def test_world_reference_required_for_neck_mounted_headset(bridge):
+    from std_msgs.msg import String
+    n = bridge
+    n.p['world_reference_required'] = True
+    feed_bridge(n)
+    assert not n.enable()[0]
+    n.on_reference_frame(String(data='world_v1'))
+    assert n.enable()[0]
+    n.on_reference_frame(String(data='head'))
+    assert not n.active
+
+
+def test_preview_reactivation_preserves_original_hand_orientation(bridge):
+    n = bridge
+    n.p['preserve_orientation_reference'] = True
+    feed_bridge(n)
+    assert n.enable()[0]
+    original = n.anchors['left'][0][:3, :3].copy()
+    original_robot = n.anchors['left'][1][:3, :3].copy()
+    n.stop('preview tracking reset')
+    feed_bridge(n)
+    old = n.poses[('vr', 'left')]
+    changed = old[0].copy()
+    changed[:3, :3] = mount_matrix([0., 0., 0.], [0., 0., 45.])[:3, :3]
+    n.poses[('vr', 'left')] = (changed, old[1], old[2])
+    assert n.enable()[0]
+    assert np.allclose(n.anchors['left'][0][:3, :3], original)
+    assert np.allclose(n.anchors['left'][1][:3, :3], original_robot)
+    assert not np.allclose(n.anchors['left'][0][:3, :3], changed[:3, :3])

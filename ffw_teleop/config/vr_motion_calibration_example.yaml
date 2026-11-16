@@ -1,0 +1,23 @@
+# Recorded 2026-11-16. Example only; recalibrate for each mounting/VR reference.
+# Right-axis fit has about 16 degrees spread; right wrist-position correction is unavailable.
+sharpa_vr_bridge:
+  ros__parameters:
+    motion_reference: world_v1
+    left_axes_rpy_deg:
+    - -77.70756148109855
+    - -67.78169016188289
+    - -12.140043083767834
+    left_position_scale: 1.0
+    left_mount_xyz:
+    - 0.00757348952523705
+    - -0.017515213487189638
+    - 0.04699869699028756
+    right_axes_rpy_deg:
+    - -89.83342768080928
+    - -54.110997124349716
+    - 19.457841106626503
+    right_position_scale: 1.0
+    right_mount_xyz:
+    - 0.0
+    - 0.0
+    - 0.0

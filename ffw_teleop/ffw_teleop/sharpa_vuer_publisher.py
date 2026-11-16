@@ -1,6 +1,17 @@
 """Official SG2 Vuer with a same-origin WebSocket URL for a bare browser URL."""
 
 
+class WorldReferenceMixin:
+    def _publish_synced_pose_frame_if_ready(self):
+        import numpy as np
+        # Never subtract the moving neck-mounted headset transform.
+        self.head_inverse_matrix = np.eye(4)
+        # World-space controller poses do not require BODY_MOVE frames. Neck
+        # mounting can stop body tracking while controller tracking stays live.
+        self.pending_body_pose_frame = True
+        return super()._publish_synced_pose_frame_if_ready()
+
+
 def main(args=None):
     import math
     from aiohttp import web
@@ -21,7 +32,15 @@ def main(args=None):
     # Keep ROBOTIS controller events, deadman buttons and coordinate conversion.
     official.Vuer = SameOriginVuer
     rclpy.init(args=args)
-    node = official.VRTrajectoryPublisher()
+    class WorldTrajectoryPublisher(WorldReferenceMixin, official.VRTrajectoryPublisher):
+        pass
+
+    node = WorldTrajectoryPublisher()
+    from std_msgs.msg import String
+    from rclpy.qos import QoSProfile, DurabilityPolicy
+    frame_pub = node.create_publisher(String, '/vr/input/reference_frame',
+        QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
+    node.create_timer(1.0, lambda: frame_pub.publish(String(data='world_v1')))
     # The upstream 12 cm correction assumes a controller held in the palm.
     # A controller attached to the glove uses its tracked point, then the
     # explicitly measured mount_xyz in the arm bridge.

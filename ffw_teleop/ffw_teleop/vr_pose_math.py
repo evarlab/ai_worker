@@ -25,10 +25,11 @@ def mount_matrix(xyz, rpy_deg):
     return matrix
 
 
-def relative_goal(current, initial_vr, initial_robot, scale):
+def relative_goal(current, initial_vr, initial_robot, scale, axes=None):
+    axes = np.eye(3) if axes is None else axes
     goal = np.eye(4)
-    goal[:3, 3] = initial_robot[:3, 3] + scale * (current[:3, 3] - initial_vr[:3, 3])
-    goal[:3, :3] = current[:3, :3] @ initial_vr[:3, :3].T @ initial_robot[:3, :3]
+    goal[:3, 3] = initial_robot[:3, 3] + scale * axes @ (current[:3, 3] - initial_vr[:3, 3])
+    goal[:3, :3] = axes @ current[:3, :3] @ initial_vr[:3, :3].T @ axes.T @ initial_robot[:3, :3]
     return goal
 
 

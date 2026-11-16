@@ -14,6 +14,9 @@ from ffw_teleop.sharpa_vr_model import prepare_model
 def setup(context):
     params = LaunchConfiguration('params_file').perform(context)
     dry_run = LaunchConfiguration('dry_run').perform(context).lower() == 'true'
+    keep_orientation = LaunchConfiguration('preserve_orientation_reference').perform(context).lower() == 'true'
+    if keep_orientation and not dry_run:
+        raise ValueError('preserve_orientation_reference is only supported for model previews')
     description = Path(get_package_share_directory('ffw_description'))
     model_share = Path(get_package_share_directory('cyclo_motion_controller_models'))
     xacro_file = description / 'urdf/ffw_sg2_rev1_follower/ffw_sg2_follower.urdf.xacro'
@@ -28,7 +31,8 @@ def setup(context):
     divergence = [('/reference_diverged', '/vr/reference_diverged')]
     return [
         Node(package='ffw_teleop', executable='sharpa_vr_bridge', name='sharpa_vr_bridge',
-             parameters=[params, {'dry_run': dry_run}], output='screen'),
+             parameters=[params, {'dry_run': dry_run,
+                                  'preserve_orientation_reference': keep_orientation}], output='screen'),
         Node(package='cyclo_motion_controller_ros', executable='vr_controller_node',
              parameters=[params, {'urdf_path': str(output / 'robot.urdf'),
                                   'srdf_path': str(output / 'robot.srdf')}],
@@ -43,5 +47,6 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('params_file', default_value=config),
         DeclareLaunchArgument('dry_run', default_value='true', choices=['true', 'false']),
+        DeclareLaunchArgument('preserve_orientation_reference', default_value='false', choices=['true', 'false']),
         OpaqueFunction(function=setup),
     ])

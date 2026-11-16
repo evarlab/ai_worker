@@ -13,7 +13,7 @@ from geometry_msgs.msg import PoseStamped
 from rcl_interfaces.srv import GetParameters
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, String
 from std_srvs.srv import SetBool
 from trajectory_msgs.msg import JointTrajectory
 
@@ -48,6 +48,7 @@ def main():
             value = max(float(limit.get('lower', value)), min(float(limit.get('upper', value)), value))
         positions.append(value)
     state_pub = node.create_publisher(JointState, '/joint_states', 10)
+    frame_pub = node.create_publisher(String, '/vr/input/reference_frame', 10)
     pose_pubs, grip_pubs, initial, targets, fk = {}, {}, {}, collections.defaultdict(list), {}
     for side in ('left', 'right'):
         def pose_callback(msg, side=side):
@@ -63,6 +64,7 @@ def main():
     activation = node.create_client(SetBool, '/sharpa_vr_bridge/enable')
     phase = [False]
     def publish():
+        frame_pub.publish(String(data='world_v1'))
         state_pub.publish(JointState(name=names, position=positions, velocity=[0.0]*len(names)))
         for side, reference in initial.items():
             msg = copy.deepcopy(reference)
