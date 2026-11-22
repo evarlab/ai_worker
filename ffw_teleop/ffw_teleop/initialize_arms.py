@@ -21,11 +21,12 @@ from .vr_start_pose import relaxed_arm_positions
 
 
 class ArmInitializer(Node):
-    def __init__(self, cancel_file=None, cancel_token='', minimum_duration=5., palms='inward'):
+    def __init__(self, cancel_file=None, cancel_token='', minimum_duration=5., palms='inward', maximum_speed=.4):
         super().__init__('initialize_vr_arms')
         self.cancel_file = Path(cancel_file) if cancel_file else None
         self.cancel_token = cancel_token
         self.minimum_duration = minimum_duration
+        self.maximum_speed = maximum_speed
         self.cancelled = False
         self.sent = False
         self.feedback = {}
@@ -98,7 +99,7 @@ class ArmInitializer(Node):
             return
         # Zero endpoint velocity and acceleration yield a quintic JTC spline.
         # Its peak speed is 1.875*distance/duration.
-        duration = max(self.minimum_duration, maximum_delta*1.875/.4)
+        duration = max(self.minimum_duration, maximum_delta*1.875/self.maximum_speed)
         ns = int(duration*1e9)
         stamp = (self.get_clock().now()+Duration(seconds=.15)).to_msg()
         print(f'URDF初期姿勢へ両腕を移動します（約{duration:.1f}秒）。停止は8番。', flush=True)
@@ -135,11 +136,16 @@ class ArmInitializer(Node):
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--domain', type=int, default=0)
+    parser.add_argument('--minimum-duration', type=float, default=5.)
+    parser.add_argument('--maximum-speed', type=float, default=.4, help='最大関節速度[rad/s]')
     parser.add_argument('--palms', choices=('inward', 'front'), default=os.environ.get('VR_PREVIEW_PALMS', 'inward'))
     options = parser.parse_args(args)
+    if not math.isfinite(options.minimum_duration) or options.minimum_duration < 1. or not math.isfinite(options.maximum_speed) or not 0 < options.maximum_speed <= .4:
+        parser.error('minimum-durationは1秒以上、maximum-speedは0より大きく0.4以下')
     rclpy.init(args=[], domain_id=options.domain, signal_handler_options=SignalHandlerOptions.NO)
     node = ArmInitializer(os.environ.get('AI_WORKER_OPERATION_FILE'), os.environ.get('AI_WORKER_OPERATION_TOKEN', ''),
-                          palms=options.palms)
+                          palms=options.palms, minimum_duration=options.minimum_duration,
+                          maximum_speed=options.maximum_speed)
     previous = {}
     for sig in (signal.SIGINT, signal.SIGTERM):
         previous[sig] = signal.signal(sig, lambda *_: setattr(node, 'cancelled', True))

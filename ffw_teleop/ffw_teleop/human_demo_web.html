@@ -1,0 +1,111 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Human demonstration capture</title>
+<style>body{font:20px system-ui;background:#111827;color:#f9fafb;max-width:850px;margin:30px auto;padding:20px}button,select{font:inherit;margin:10px;padding:12px}video{max-width:100%;width:480px}pre{white-space:pre-wrap}#error{color:#fca5a5}</style>
+<h1>人間のタスク収集</h1><p>手の位置・向き、グローブ、外向きカメラを収集します。開始・終了はPCのターミナルから操作できます。</p>
+<button id="list">カメラを選ぶ</button><select id="cameras"></select><button id="camera">選択したカメラを使う</button>
+<button id="xr">Enter XR</button><p id="error"></p><video id="video" autoplay muted playsinline></video><pre id="status">接続中…</pre>
+<canvas id="canvas" hidden></canvas><canvas id="xrCanvas" hidden></canvas>
+<script>
+'use strict';
+const token=new URLSearchParams(location.search).get('token')||'';
+const headers={Authorization:'Bearer '+token};
+const $=id=>document.getElementById(id);
+const trackingOnly=new URLSearchParams(location.search).get('tracking_only')==='1';
+if(trackingOnly){for(const id of ['list','cameras','camera','video'])$(id).hidden=true;document.querySelector('h1').textContent='Quest コントローラ追跡チェック';document.querySelector('p').textContent='Enter XRを押し、両コントローラを動かしてください。実機への指令・タスク収集は行いません。';}
+const poseOnly=new URLSearchParams(location.search).get('pose_only')==='1';
+if(poseOnly){for(const id of ['list','cameras','camera','video'])$(id).hidden=true;document.querySelector('h1').textContent='人間実演の収集（手の姿勢＋指角度）';document.querySelector('p').textContent='Enter XRを押してください。記録の開始・終了はPCから操作します。今回はカメラ映像なしで、実機への出力はありません。';}
+const fail=e=>{$('error').textContent=String(e.message||e);};
+let ws,referenceId=null,session=null,lastPose=-Infinity,clock=null,cameraStream=null,uploadBusy=false,xrStarting=false;
+let sampleCount=0,imageCount=0,skipped=0,clockTimer=null;
+const send=(event,data)=>{if(ws?.readyState===WebSocket.OPEN&&ws.bufferedAmount<128000)ws.send(JSON.stringify({event,data}));};
+function connect(){
+ ws=new WebSocket(`wss://${location.host}/events?token=${encodeURIComponent(token)}`);
+ ws.onopen=async()=>{if(referenceId)send('reference',{reference_id:referenceId,type:'local-floor',reason:'connection_resume'});
+  send('capabilities',{user_agent:navigator.userAgent,secure_context:isSecureContext,
+   immersive_ar:navigator.xr?await navigator.xr.isSessionSupported('immersive-ar'):false,
+   immersive_vr:navigator.xr?await navigator.xr.isSessionSupported('immersive-vr'):false});};
+ ws.onclose=()=>setTimeout(connect,1000);
+ ws.onmessage=e=>{const m=JSON.parse(e.data);if(m.event==='pong'){
+  const end=performance.now(),rtt=end-m.client_ms;
+  clock={server_minus_client_ms:m.server_monotonic_ns/1e6-(m.client_ms+end)/2,rtt_ms:rtt,client_ms:end,method:'websocket_midpoint_approximate'};
+  send('clock_sync',clock);
+ }};
+}
+connect();clockTimer=setInterval(()=>send('ping',{client_ms:performance.now()}),1000);
+async function checkedFetch(path,options={}){
+ const response=await fetch(path,{...options,headers:{...headers,...options.headers}});
+ if(!response.ok)throw new Error(await response.text());
+ return response.json();
+}
+$('list').onclick=async()=>{try{
+ // Ask for the environment camera, never silently accept the avatar/selfie.
+ const probe=await navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:'environment'}},audio:false});
+ probe.getTracks().forEach(t=>t.stop());
+ const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
+ $('cameras').replaceChildren();
+ for(const d of devices){const option=document.createElement('option');option.value=d.deviceId;option.textContent=d.label||'名称不明のカメラ';$('cameras').append(option);}
+ const back=devices.find(d=>/back|rear|environment|passthrough/i.test(d.label));
+ if(back)$('cameras').value=back.deviceId;
+ $('error').textContent='外向きの実カメラを選択してください。avatar/front/selfieは使いません。';
+}catch(e){fail(e);send('camera_status',{available:false,error:String(e)});}};
+$('camera').onclick=async()=>{try{
+ if(cameraStream)cameraStream.getTracks().forEach(t=>t.stop());
+ const deviceId=$('cameras').value;if(!deviceId)throw new Error('先にカメラを選んでください');
+ cameraStream=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:deviceId},width:{ideal:1280},height:{ideal:960},frameRate:{ideal:15,max:15}},audio:false});
+ const track=cameraStream.getVideoTracks()[0],settings=track.getSettings(),label=track.label;
+ if(settings.facingMode!=='environment'&&!/back|rear|environment|passthrough/i.test(label)){
+  cameraStream.getTracks().forEach(t=>t.stop());throw new Error('外向きカメラと確認できません。avatar/front/selfieは使用不可です');
+ }
+ $('video').srcObject=cameraStream;await $('video').play();$('error').textContent='';
+ send('camera_status',{available:true,label,settings,source:'quest_passthrough_browser',intrinsics:null,T_head_camera:null});
+}catch(e){fail(e);send('camera_status',{available:false,error:String(e)});}};
+async function imageFrame(now,frameMetadata){
+ const video=$('video');
+ if(!cameraStream||!video.videoWidth)return;
+ if(uploadBusy){skipped++;return;}
+ uploadBusy=true;
+ try{
+  const canvas=$('canvas');canvas.width=video.videoWidth;canvas.height=video.videoHeight;
+  canvas.getContext('2d').drawImage(video,0,0);
+  const settings=cameraStream.getVideoTracks()[0].getSettings();
+  const metadata={source:'quest_passthrough_browser',verified_environment:true,
+   reference_id:referenceId,client_ms:now,video_media_time_s:frameMetadata?.mediaTime??video.currentTime,
+   presented_frames:frameMetadata?.presentedFrames??null,width:canvas.width,height:canvas.height,
+   clock_sync:clock,intrinsics:null,T_head_camera:null,sensor_timestamp:null,
+   timing:'browser_video_callback_not_sensor_exposure',camera_label:cameraStream.getVideoTracks()[0].label,skipped_images_total:skipped,settings};
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.85));
+  await checkedFetch('/camera/quest_rgb',{method:'POST',headers:{'Content-Type':'image/jpeg','X-Frame-Metadata':JSON.stringify(metadata)},body:blob});
+  imageCount++;
+ }catch(e){fail(e);}finally{uploadBusy=false;}
+}
+function videoTick(now,metadata){imageFrame(now,metadata);$('video').requestVideoFrameCallback(videoTick);}
+if('requestVideoFrameCallback'in HTMLVideoElement.prototype)$('video').requestVideoFrameCallback(videoTick);
+else setInterval(()=>imageFrame(performance.now(),null),100);
+$('xr').onclick=async()=>{if(xrStarting)return;xrStarting=true;try{
+ if(session){await session.end();return;}
+ const mode=await navigator.xr.isSessionSupported('immersive-ar')?'immersive-ar':'immersive-vr';
+ session=await navigator.xr.requestSession(mode,{requiredFeatures:['local-floor'],optionalFeatures:['dom-overlay'],domOverlay:{root:document.body}});
+ const gl=$('xrCanvas').getContext('webgl',{xrCompatible:true,alpha:true});await gl.makeXRCompatible();
+ session.updateRenderState({baseLayer:new XRWebGLLayer(session,gl)});
+ const ref=await session.requestReferenceSpace('local-floor');
+ function reference(reason){referenceId=crypto.randomUUID();send('reference',{reference_id:referenceId,type:'local-floor',mode,reason,axes:'+X right +Y up -Z forward',units:'m'});}
+ reference('session_start');ref.addEventListener('reset',()=>reference('reference_reset'));
+ session.addEventListener('end',()=>{send('tracking',{reference_id:referenceId,state:'session_end'});session=null;$('xr').textContent='Enter XR';});
+ $('xr').textContent='Exit XR';
+ function frame(now,xrFrame){
+  if(!session)return;session.requestAnimationFrame(frame);
+  const layer=session.renderState.baseLayer;gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
+  if(now-lastPose<1000/60)return;lastPose=now;
+  const viewer=xrFrame.getViewerPose(ref);
+  const data={reference_id:referenceId,client_ms:now,clock_sync:clock,head:viewer?Array.from(viewer.transform.matrix):null,left:null,right:null,controllers:{},timing:'WebXR_predicted_display_time_not_camera_exposure'};
+  for(const input of session.inputSources){if(!['left','right'].includes(input.handedness))continue;
+   const pose=input.gripSpace?xrFrame.getPose(input.gripSpace,ref):null;
+   data[input.handedness]=pose?Array.from(pose.transform.matrix):null;
+   data.controllers[input.handedness]={profiles:input.profiles,buttons:input.gamepad?input.gamepad.buttons.map(b=>({pressed:b.pressed,value:b.value})):[],emulated_position:pose?.emulatedPosition??null};
+  }
+  send('xr',data);sampleCount++;
+ }
+ session.requestAnimationFrame(frame);
+}catch(e){if(session){try{await session.end();}catch(_){}session=null;}fail(e);}finally{xrStarting=false;}};
+setInterval(async()=>{try{const s=await checkedFetch('/status');$('status').textContent=JSON.stringify({...s,sent_pose:sampleCount,sent_images:imageCount,skipped_images:skipped},null,2);}catch(e){fail(e);}},1000);
+</script></html>

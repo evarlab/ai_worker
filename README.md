@@ -25,12 +25,16 @@ ContactGlove 3 Proで操作するブランチは`devel/contactgrove_sharpa`で�
 Quest 3で腕と指を同時に操作する保存ブランチは`devel/vr_contactgrove_sharpa_20261116`です。
 [普段の操作手順](ffw_teleop/OPERATION_SHARPA_VR.md)と
 [VR＋Sharpaの導入・詳細](ffw_teleop/VR_SHARPA.md)を参照してください。
-`./teleop_terminal.sh`でTerminatorを8分割し、各起動コマンドをEnter待ちで並べられます。
+`./teleop_terminal.sh`でTerminatorを9分割し、各起動コマンドをEnter待ちで並べられます。9番がフットペダルです。
 校正は`./calibrate_vr.sh`、URDF確認は`./preview_vr.sh`、実機の開始・再開は`./resume_teleop.sh`です。
 開始・再開時は、実機の両腕をURDF初期姿勢へ移動してからVRの基準を登録します。
 腕と指の追従を一括停止する場合は、PCで`./stop_teleop.sh`を実行します。
 昇降の独立操作、RGB-D・関節・電流のrosbag記録、RVizと実機での再生は
 [記録・再生手順](RECORDING_REPLAY.md)を参照してください。
+3連フットペダルは`./foot_pedal.sh`で有効になり、左＝開始／停止、中央＝記録、右＝初期姿勢への低速移動です。
+人間がContactGloveとQuestを装着して行うタスクの収集は
+[人間実演データの収集と展開方針](HUMAN_DEMONSTRATIONS.md)を参照してください。`./record_human_demo.sh`で実機と独立して収集します。
+Quest ProのUSB・ブラウザ・コントローラ追跡は`./check_quest.sh`で実機へ指令を出さず確認できます。
 
 The SG2 follower can run with Sharpa Wave hands instead of the grippers, or with bare flanges, as one
 ros2_control robot: `ros2 launch ffw_bringup ffw_sg2_sharpa_follower_ai.launch.py`. Setup, launch

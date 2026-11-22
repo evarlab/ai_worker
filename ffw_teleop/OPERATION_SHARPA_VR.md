@@ -11,7 +11,9 @@ cd /home/koki/ai_worker
 ./teleop_terminal.sh
 ```
 
-Terminatorが8分割で開き、各ペインにコマンドが入力済みになる。
+Terminatorが9分割（3列×3段）で開き、各ペインにコマンドが入力済みになる。
+9番はフットペダル。Enterで`./foot_pedal.sh`を起動し、左で7番の開始／停止、中央でrosbagの開始／保存終了、右で初期姿勢への低速移動を行う。Ctrl+Cで終了する。
+3番はVRサーバー起動後、USB認証済みQuestへteleop URLを自動で開く。初回の証明書警告の承認とEnter VRはQuest内で行う。USB未接続・未承認の場合は最大90秒待って理由を表示する。VR入力の配信は自動で有効になるが、実機追従の開始は引き続き7番。
 開くだけでは何も起動しない。クリックしてEnterで実行する。
 普段は1（DivingStation）→2（本体）→3（VR配信）→4（グローブ入力）→5（腕IK）の順に起動し、
 QuestでEnter VRして姿勢を合わせてから7で開始する。止めるときは8でEnter。

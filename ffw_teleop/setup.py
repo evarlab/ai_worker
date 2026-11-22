@@ -13,6 +13,7 @@ setup(
     name=package_name,
     version='2.3.2',
     packages=find_packages(exclude=[]),
+    package_data={'ffw_teleop': ['human_demo_web.html']},
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
@@ -32,6 +33,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'human_demo = ffw_teleop.human_demo:main',
+            'foot_pedal = ffw_teleop.foot_pedal:main',
             'lift_keyboard = ffw_teleop.lift_keyboard:main',
             'record_rosbag = ffw_teleop.record_rosbag:main',
             'replay_rosbag = ffw_teleop.replay_rosbag:main',

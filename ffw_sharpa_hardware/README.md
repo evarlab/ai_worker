@@ -120,6 +120,52 @@ ros2 action send_goal /hand_r_controller/follow_joint_trajectory control_msgs/ac
 
 ## Faults and recovery
 
+### Sharpa Pilot on this PC through AI Worker
+
+Official Pilot 2.1.0 and its bundled SDK 5.1.0 are installed on the PC. The robot's existing
+workspace SDK 5.0.11 is separate and has not been upgraded. Release source:
+[official Pilot releases](https://github.com/sharpa-robotics/sharpa-pilot/releases).
+
+Close the body launch in Terminator pane 2 before using Pilot. Following must be stopped;
+do not use ROS and Pilot to operate the same hand concurrently. Launch from the repository root:
+
+```bash
+./sharpa_pilot.sh
+```
+
+The GUI runs locally; SSH remains connected. The PC must have a wired 192.168.6.x connection
+to AI Worker. Hand TCP/UDP requests use two temporary host routes through 192.168.6.2. A
+receive-only UDP relay on AI Worker sends hand discovery, joint feedback, debug and tactile
+packets to the PC. It sends no hand commands. The installed forwarding/NAT rules only cover
+this PC and hand addresses 192.168.10.10 / 192.168.10.20. Routes/rules are not persisted across
+reboots. The relay exits when the wrapper closes. Log: `~/.local/state/ai_worker/pilot-relay.log`.
+
+**Pilot can enable motors when selecting a control mode. Opening/connecting to Pilot is not
+a guarantee that motor torque remains disabled.** The SDK's `set_control_mode(POSITION)` also
+enables motors. Check the enable state before handling fingers. This wrapper does not execute
+calibration, firmware updates, error suppression, or motor-enable calls itself; the vendor GUI
+and its SDK manage their own connection/control sequence.
+
+One-time network setup after a PC/robot reboot, using the current wired PC address:
+
+```bash
+# PC (routes only)
+sudo bash ffw_sharpa_hardware/scripts/pilot_network_pc.sh on
+# AI Worker host, after copying these scripts to its custom source workspace:
+sudo bash /home/robotis/ai_worker/docker/workspace/contactgrove_sharpa/src/ai_worker/ffw_sharpa_hardware/scripts/pilot_network_robot.sh on 192.168.6.166
+```
+
+Use `off` in place of `on` on each host to remove only these routes/rules. The PC address
+must match the current `192.168.6.x` address. To return to teleop, close Pilot first, then
+restart pane 2 (body), pane 5 (IK), and pane 9 (pedals) as needed. Pane 7 starts physical motion.
+
+At installation verification, the right hand was discovered and feedback displayed at about
+500 Hz; the left address did not respond. This is not a claim that the right-hand fault,
+calibration, or internal limits have been repaired. Pilot also reports a tactile host-listen
+configuration fault (0x0819) with the factory host IP still set to 192.168.10.240; this is
+separate from the thumb joint-limit fault. No device/network/calibration parameters were
+changed to address that tactile fault.
+
 `read()` and `write()` never return an error, because that would also stop the
 `joint_state_broadcaster` for the whole robot. Instead, the hand **holds**: no new targets are sent,
 so the hand stays at its last target. This happens when:

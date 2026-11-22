@@ -106,6 +106,9 @@ def main(args=None):
             self.vuer.add_handler('CAMERA_MOVE')(self.on_camera_move)
 
     node = WorldTrajectoryPublisher()
+    if node.declare_parameter('auto_publish_inputs', True).value:
+        node.vr_publishing_enabled = True
+        node.get_logger().info('VR tracking input publishing enabled; physical following still requires 7番.')
     node.get_logger().info(f'Controller telemetry: {node.recording.path}')
     from std_msgs.msg import String
     from rclpy.qos import QoSProfile, DurabilityPolicy

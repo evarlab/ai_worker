@@ -56,7 +56,12 @@ def main(args=None):
     parser.add_argument('--domain', type=int, default=int(os.environ.get('ROS_DOMAIN_ID', '0')))
     parser.add_argument('--wait', type=float, default=20.)
     parser.add_argument('--allow-missing', action='store_true', help='不足トピックをmanifestに記載して記録する')
+    parser.add_argument('--stop', action='store_true', help='実行中の記録を保存して終了する')
+    parser.add_argument('--toggle', action='store_true', help='記録中なら保存終了、停止中なら開始')
     options = parser.parse_args(args)
+    from .recording_control import RecorderLock, stop_recording, recording_active
+    if options.stop or (options.toggle and recording_active(options.domain)):
+        return stop_recording(options.domain)
     if not math.isfinite(options.wait) or options.wait < 0:
         parser.error('waitは0以上の有限値です')
     config = yaml.safe_load(options.config.read_text())
@@ -64,7 +69,7 @@ def main(args=None):
     node = rclpy.create_node('rosbag_rgbd_inventory')
     stopping = [False]
     previous = {sig: signal.signal(sig, lambda *_: stopping.__setitem__(0, True))
-                for sig in (signal.SIGINT, signal.SIGTERM)}
+                for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
     description, currents, current_sub = [None], [{}], None
     image_samples, image_probes = {}, {}
     node.create_subscription(String, '/robot_description', lambda msg: description.__setitem__(0, msg.data),
@@ -72,8 +77,10 @@ def main(args=None):
     recorder = None
     session = None
     manifest = None
+    control = None
     code = 0
     try:
+        control = RecorderLock(options.domain)
         deadline = time.monotonic()+options.wait
         selected, missing, topics = {}, [], []
         while not stopping[0]:
@@ -159,6 +166,8 @@ def main(args=None):
         rclpy.try_shutdown()
         for sig, handler in previous.items():
             signal.signal(sig, handler)
+        if control is not None:
+            control.close()
     return code
 
 

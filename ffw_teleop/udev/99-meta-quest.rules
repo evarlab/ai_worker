@@ -1,0 +1,2 @@
+# Meta Quest Pro: ADB for USB transport and browser diagnostics.
+SUBSYSTEM=="usb", ATTR{idVendor}=="2833", ATTR{idProduct}=="5013", MODE="0660", GROUP="plugdev", TAG+="uaccess"
