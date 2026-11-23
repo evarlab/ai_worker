@@ -29,9 +29,9 @@ systemctl --user stop contactglove-sharpa.service &
 local_stop_pid=$!
 timeout --foreground 6 ssh -S "$SOCKET" -o ControlMaster=auto -o ControlPersist=600 -o ConnectTimeout=3 \
     -o ServerAliveInterval=2 -o ServerAliveCountMax=2 \
-    "$ROBOT" 'docker exec ai_worker bash -c '\''pkill -INT -f "[l]ib/ffw_teleop/sharpa_vr_bridge|[c]heck_arm_joint.py" || true
-for attempt in {1..20}; do
-    pgrep -f "[l]ib/ffw_teleop/sharpa_vr_bridge|[c]heck_arm_joint.py" >/dev/null || exit 0
+    "$ROBOT" 'docker exec ai_worker bash -c '\''pkill -INT -f "[l]ib/ffw_teleop/sharpa_vr_bridge|[c]heck_arm_joint.py|[a]i-worker-hand-recovery" || true
+for attempt in {1..60}; do
+    pgrep -f "[l]ib/ffw_teleop/sharpa_vr_bridge|[c]heck_arm_joint.py|[a]i-worker-hand-recovery" >/dev/null || exit 0
     sleep 0.05
 done
 exit 1'\''' || remote_status=$?

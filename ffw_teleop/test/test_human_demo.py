@@ -139,6 +139,8 @@ def test_http_websocket_camera_episode_roundtrip(tmp_path):
             image_headers = {**auth, 'X-Frame-Metadata': json.dumps(dict(source='quest_passthrough_browser', verified_environment=True, reference_id='one'))}
             response = await client.post('/camera/quest_rgb', headers=image_headers, data=b'\xff\xd8frame\xff\xd9')
             assert response.status == 200
+            response = await client.post('/control', headers=auth, json=dict(action='follow-start'))
+            assert response.status == 200
             response = await client.post('/control', headers=auth, json=dict(action='start', task='pick'))
             assert response.status == 200, await response.text()
             response = await client.post('/camera/quest_rgb', headers=image_headers, data=b'\xff\xd8frame\xff\xd9')
@@ -194,3 +196,234 @@ def test_offline_arm_fk_respects_urdf_origins_and_joint_axes():
     arm = Arm(root,'l')
     assert arm.fk(np.zeros(7))[:3,3] == pytest.approx([7,0,0])
     assert arm.fk(np.array([np.pi/2]+[0.]*6))[:3,3] == pytest.approx([1,6,0])
+
+
+def test_aruco_real_jpeg_detection():
+    cv2 = pytest.importorskip('cv2')
+    from ffw_teleop.human_demo_aruco import ArucoDetector
+    dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+    marker = (cv2.aruco.generateImageMarker(dictionary, 7, 160)
+              if hasattr(cv2.aruco, 'generateImageMarker') else cv2.aruco.drawMarker(dictionary, 7, 160))
+    image = np.full((240, 320), 255, dtype=np.uint8)
+    image[40:200, 80:240] = marker
+    ok, jpeg = cv2.imencode('.jpg', image)
+    assert ok
+    result = ArucoDetector().detect(jpeg.tobytes())
+    assert result['width'] == 320 and result['height'] == 240
+    assert [m['id'] for m in result['markers']] == [7]
+    assert np.allclose(result['markers'][0]['corners'], [[80,40],[239,40],[239,199],[80,199]], atol=2)
+    _, blank = cv2.imencode('.jpg', np.full_like(image, 255))
+    assert ArucoDetector().detect(blank.tobytes())['markers'] == []
+    with pytest.raises(ValueError, match='decode'):
+        ArucoDetector().detect(b'not a JPEG')
+
+
+def test_terminal_controls_use_collector_and_eof_detaches(tmp_path, monkeypatch):
+    import os
+    import sys
+    from ffw_teleop.human_demo import application, terminal_controls
+    async def run():
+        episodes = HumanEpisodes(tmp_path)
+        app = application(episodes, 'secret', require_camera=False)
+        app['episodes'] = episodes
+        read_fd, write_fd = os.pipe()
+        with os.fdopen(read_fd, 'r') as source:
+            monkeypatch.setattr(sys, 'stdin', source)
+            os.write(write_fd, b'start pick\nstatus\nstop success\nunknown\n')
+            os.close(write_fd)
+            stopped = asyncio.Event()
+            await asyncio.wait_for(terminal_controls(app, stopped, 'demo'), 2.)
+            assert not stopped.is_set()
+            assert episodes.stream is None
+        read_fd, write_fd = os.pipe()
+        with os.fdopen(read_fd, 'r') as source:
+            monkeypatch.setattr(sys, 'stdin', source)
+            os.write(write_fd, b'quit\n')
+            os.close(write_fd)
+            await asyncio.wait_for(terminal_controls(app, stopped, 'demo'), 2.)
+            assert stopped.is_set()
+    asyncio.run(run())
+
+
+def test_head_origin_and_current_head_hands_survive_export(tmp_path):
+    e = HumanEpisodes(tmp_path)
+    e.record('reference', dict(reference_id='one'))
+    # Head initially faces +X: this catches using translations alone.
+    initial = np.eye(4)
+    initial[:3, :3] = [[0, 0, 1], [0, 1, 0], [-1, 0, 0]]
+    initial[:3, 3] = [2, 1, 3]
+    e.record('xr', dict(reference_id='one', head=initial.flatten(order='F').tolist()))
+    e.follow_start()
+    e.start('relative')
+    current = initial.copy()
+    current[:3, 3] += [1, 0, 0]
+    hand = current.copy()
+    hand[:3, 3] += [0, 0, -0.5]
+    e.record('xr', dict(reference_id='one', head=current.flatten(order='F').tolist(),
+        left=hand.flatten(order='F').tolist(), right=hand.flatten(order='F').tolist()))
+    data = e.latest['xr']['data']
+    assert np.allclose(np.array(data['T_head_origin_head'])[:3, 3], [0, 0, 1])
+    assert np.allclose(np.array(data['T_head_left'])[:3, 3], [.5, 0, 0])
+    with pytest.raises(ValueError, match='記録中'):
+        e.follow_start()
+    directory = e.directory
+    e.follow_stop()
+    assert not e.following and e.stream is None
+    assert json.loads((directory/'manifest.json').read_text())['outcome'] == 'interrupted'
+    arrays = np.load(export_episode(directory))
+    assert arrays['head_origin_valid'].tolist() == [True]
+    assert np.allclose(arrays['T_head_origin_head'][0, :3, 3], [0, 0, 1])
+    assert np.allclose(arrays['T_head_controller'][0, 0, :3, 3], [.5, 0, 0])
+
+
+def test_follow_requires_fresh_head_and_resets_on_reference_change(tmp_path):
+    e = HumanEpisodes(tmp_path)
+    with pytest.raises(ValueError, match='新しい頭'):
+        e.follow_start()
+    e.record('reference', dict(reference_id='one'))
+    e.record('xr', dict(reference_id='one', head=pose()))
+    e.latest['xr']['receive_monotonic_ns'] -= 1_000_000_000
+    with pytest.raises(ValueError, match='新しい頭'):
+        e.follow_start()
+    e.record('xr', dict(reference_id='one', head=pose()))
+    e.follow_start()
+    e.start()
+    e.record('reference', dict(reference_id='two'))
+    assert not e.following and e.head_origin is None and e.stream is None
+
+
+def test_human_pedal_api_toggles_and_saves_workspace(tmp_path):
+    from aiohttp.test_utils import TestClient, TestServer
+    from ffw_teleop.human_demo import application
+    async def run():
+        workspace={'simulation':{'table_surface_height_m':.7},'robot_deployment':{'calibrated':False}}
+        e=HumanEpisodes(tmp_path,workspace=workspace)
+        client=TestClient(TestServer(application(e,'secret',require_camera=False)))
+        await client.start_server()
+        async def action(name, **kw):
+            response=await client.post('/control',headers={'Authorization':'Bearer secret'},json=dict(action=name,**kw))
+            assert response.status==200,await response.text()
+            return await response.json()
+        try:
+            e.record('reference',dict(reference_id='one'))
+            e.record('xr',dict(reference_id='one',head=pose(),left=pose(),right=pose()))
+            for side in ('left','right'):
+                e.record('glove_'+side,dict(source_timestamp_ms=123,angles_degrees=[1.]*20))
+            assert (await action('follow-toggle'))['status']['following']
+            assert (await action('toggle',task='pick'))['status']['recording']
+            result=await action('toggle',outcome='success')
+            manifest=json.loads((e.directory/'manifest.json').read_text())
+            assert manifest['outcome']=='success' and manifest['workspace']==workspace
+            assert not result['status']['recording']
+            assert result['status']['following']
+            assert (await action('toggle',task='second'))['status']['recording']
+            result=await action('follow-toggle')
+            assert not result['status']['following'] and not result['status']['recording']
+            assert json.loads((e.directory/'manifest.json').read_text())['outcome']=='interrupted'
+        finally:await client.close()
+    asyncio.run(run())
+
+
+def test_camera_saves_jpeg_and_real_aruco_detection(tmp_path):
+    cv2=pytest.importorskip('cv2')
+    from aiohttp.test_utils import TestClient,TestServer
+    from ffw_teleop.human_demo import application
+    from ffw_teleop.human_demo_aruco import ArucoDetector
+    async def run():
+        e=HumanEpisodes(tmp_path)
+        client=TestClient(TestServer(application(e,'secret',require_camera=False,detector=ArucoDetector())))
+        await client.start_server()
+        try:
+            e.record('reference',dict(reference_id='one'))
+            e.record('xr',dict(reference_id='one',head=pose(),left=pose(),right=pose()))
+            e.follow_start();e.start('image_check')
+            dictionary=cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
+            marker=(cv2.aruco.generateImageMarker(dictionary,4,160) if hasattr(cv2.aruco,'generateImageMarker') else cv2.aruco.drawMarker(dictionary,4,160))
+            im=np.full((240,240),255,dtype=np.uint8);im[40:200,40:200]=marker
+            _,jpeg=cv2.imencode('.jpg',im)
+            metadata=dict(source='quest_passthrough_browser',verified_environment=True,reference_id='one',client_ms=123)
+            response=await client.post('/camera/quest_rgb',data=jpeg.tobytes(),headers={
+                'Authorization':'Bearer secret','X-Frame-Metadata':json.dumps(metadata)})
+            assert response.status==200
+            assert [m['id'] for m in (await response.json())['aruco']['markers']]==[4]
+            e.stop('success')
+            with gzip.open(e.directory/'events.jsonl.gz','rt') as f:events=[json.loads(line) for line in f]
+            detection=next(x['data'] for x in events if x['event']=='aruco')
+            assert detection['metadata']==dict(metadata,intrinsics=None) and detection['markers'][0]['id']==4
+            image=next(x['data'] for x in events if x['event']=='image')
+            assert (e.directory/image['path']).read_bytes()==jpeg.tobytes()
+        finally:await client.close()
+    asyncio.run(run())
+
+
+def test_floor_preview_preserves_spacing_floor_height_and_common_motion():
+    from ffw_teleop.human_demo_sim import floor_preview_positions
+    poses=np.tile(np.eye(4),(2,2,1,1))
+    poses[0,0,:3,3]=[-.35,.90,-.2]
+    poses[0,1,:3,3]=[ .35,.95,-.1]
+    poses[1,:,:3,3]=poses[0,:,:3,3]+[.1,-.1,-.2]
+    basis=np.array([[0,0,-1],[-1,0,0],[0,1,0]])
+    targets=floor_preview_positions(poses,basis,0)
+    assert np.allclose(targets[0].mean(axis=0)[:2],[.5,0])
+    assert np.allclose(targets[:,:,2],poses[:,:,1,3])
+    assert np.allclose(targets[:,0]-targets[:,1],(poses[:,0,:3,3]-poses[:,1,:3,3])@basis.T)
+    assert np.allclose(targets[1]-targets[0],[[.2,-.1,-.1]]*2)
+
+
+def test_arm_fk_accounts_for_fixed_lift():
+    import xml.etree.ElementTree as ET
+    from ffw_teleop.human_demo_sim import Arm
+    # Minimal independent prismatic + seven revolute chain.
+    root=ET.Element('robot')
+    lift=ET.SubElement(root,'joint',name='lift_joint',type='prismatic')
+    ET.SubElement(lift,'parent',link='base');ET.SubElement(lift,'child',link='lift')
+    ET.SubElement(lift,'axis',xyz='0 0 1')
+    for i in range(1,8):
+        j=ET.SubElement(root,'joint',name=f'arm_l_joint{i}',type='revolute')
+        ET.SubElement(j,'parent',link='lift' if i==1 else f'arm_l_link{i-1}')
+        ET.SubElement(j,'child',link=f'arm_l_link{i}')
+        ET.SubElement(j,'axis',xyz='0 1 0');ET.SubElement(j,'limit',lower='-3.14',upper='3.14')
+    q=np.zeros(7)
+    original=Arm(root,'l').fk(q)
+    lowered=Arm(root,'l',{'lift_joint':-.15}).fk(q)
+    assert np.allclose(lowered[:3,3]-original[:3,3],[0,0,-.15])
+
+
+def test_sdk_skeleton_and_manual_editor_api(tmp_path):
+    from types import SimpleNamespace
+    from ffw_teleop.human_demo import application,skeleton_event
+    from aiohttp.test_utils import TestClient,TestServer
+    async def run():
+        e=HumanEpisodes(tmp_path)
+        frame=SimpleNamespace(is_left=True,id='glove',profile_uuid='profile',timestamp_ms=100,tracking_state=0,
+            positions=[SimpleNamespace(x=-i*.005,y=0.,z=0.) for i in range(25)],
+            rotations=[SimpleNamespace(w=1.,x=0.,y=0.,z=0.) for _ in range(19)])
+        skeleton_event(e,frame)
+        client=TestClient(TestServer(application(e,'secret',require_camera=False)))
+        await client.start_server()
+        auth={'Authorization':'Bearer secret'}
+        try:
+            assert (await client.get('/mount-state')).status==401
+            response=await client.get('/mount-assets/models/meta-quest-touch-pro-left.glb')
+            assert response.status==200 and (await response.read())[:4]==b'glTF'
+            response=await client.get('/mount-state',headers=auth)
+            data=await response.json()
+            assert data['skeletons']['left']['positions_m'][10]==[-.05,0.,0.]
+            matrix=np.eye(4);matrix[0,3]=.02
+            body=dict(action='mount-set',side='left',T_controller_wrist=matrix.tolist(),controller_model='meta-quest-touch-pro')
+            response=await client.post('/control',headers=auth,json=body)
+            assert response.status==200
+            assert e.capture_calibration.mounts['left']['skeleton_profile_uuid']=='profile'
+            e.start('recording')
+            response=await client.post('/control',headers=auth,json=body)
+            assert response.status==400
+            e.stop()
+            frame.timestamp_ms+=1;frame.tracking_state=2;skeleton_event(e,frame)
+            assert 'skeleton_skipped_left' in e.latest
+            response=await client.get('/mount-state',headers=auth)
+            assert 'left' in (await response.json())['skeletons']
+            frame.timestamp_ms+=1;frame.tracking_state=1;skeleton_event(e,frame)
+            response=await client.get('/mount-state',headers=auth)
+            assert 'left' not in (await response.json())['skeletons']
+        finally:await client.close()
+    asyncio.run(run())

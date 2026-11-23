@@ -1,5 +1,6 @@
 """Stream ContactGlove3 Pro flexion to existing Sharpa trajectory controllers."""
 import math
+import json
 import threading
 import time
 
@@ -8,7 +9,8 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import JointState
-from std_srvs.srv import SetBool
+from diagnostic_msgs.msg import DiagnosticArray
+from std_srvs.srv import SetBool, Trigger
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 from builtin_interfaces.msg import Duration
 
@@ -22,7 +24,7 @@ class ContactGloveSharpa(Node):
         defaults = dict(host='127.0.0.1', port=25791, local_port=0, hands='right',
                         controlled_fingers='all',
                         input_mode='sdk', glove_namespace='/contact_glove',
-                        auto_enable=False, clamp_targets=True,
+                        auto_enable=False, clamp_targets=True, require_hardware_diagnostics=False,
                         include_abduction=False,
                         left_abduction_gains=[1.0]*5, right_abduction_gains=[1.0]*5,
                         left_abduction_offsets=[0.0]*5, right_abduction_offsets=[0.0]*5,
@@ -68,6 +70,8 @@ class ContactGloveSharpa(Node):
         self.feedback = {}
         self.command = {}
         self.enabled = False
+        self.wait_reason = ''
+        self.hardware_health = {}
         self.auto_arm_pending = self.p['auto_enable']
         self.source_present = False
         self.client = None
@@ -80,6 +84,8 @@ class ContactGloveSharpa(Node):
         self.create_subscription(JointState, '/joint_states', self.on_joints,
                                  qos_profile_sensor_data)
         self.create_service(SetBool, '~/enable', self.on_enable)
+        self.create_service(Trigger, '~/status', self.on_status)
+        self.create_subscription(DiagnosticArray, '/diagnostics', self.on_diagnostics, qos_profile_sensor_data)
         self.create_timer(1.0 / self.p['rate'], self.tick)
         if self.p['input_mode'] == 'ros':
             from contact_glove_msgs.msg import Ergonomics
@@ -159,17 +165,47 @@ class ContactGloveSharpa(Node):
         if first:
             self.get_logger().info(f'{side} glove id={frame.id}: valid ergonomics received')
 
+    def on_diagnostics(self, message):
+        now = time.monotonic()
+        for status in message.status:
+            for side in self.sides:
+                if status.name != f'sharpa_wave: {side} hand':
+                    continue
+                values = {v.key:v.value for v in status.values}
+                level = int.from_bytes(status.level, 'little') if isinstance(status.level, bytes) else int(status.level)
+                healthy = level == 0 and status.message == 'enabled' and values.get('ros2_control_active') == 'true'
+                self.hardware_health[side] = (healthy, now, status.message)
+
     def ready(self, now):
         for side in self.sides:
+            if self.p['require_hardware_diagnostics']:
+                healthy, stamp, message = self.hardware_health.get(side, (False, -math.inf, 'diagnostics missing'))
+                if not healthy or now-stamp > 2.5:
+                    self.wait_reason = f'{side} hardware: '+(message if now-stamp <= 2.5 else 'diagnostics missing/stale')
+                    return False
             if (not self.p['dry_run'] and
                     self.publishers_[side].get_subscription_count() == 0):
+                self.wait_reason = f'{side} hand controller has no trajectory subscriber'
                 return False
             if side not in self.frames or now - self.frames[side][0] > self.p['timeout']:
+                self.wait_reason = f'{side} glove data missing/stale'
                 return False
             for name in self.names(side):
                 if name not in self.feedback or now - self.feedback[name][1] > self.p['timeout']:
+                    self.wait_reason = 'Joint feedback missing/stale: '+name
                     return False
+        self.wait_reason = ''
         return True
+
+    def on_status(self, request, response):
+        with self.lock:
+            response.success = self.ready(time.monotonic())
+            response.message = json.dumps(dict(enabled=self.enabled, ready=response.success,
+                reason=self.wait_reason, dry_run=self.p['dry_run'],
+                targets={s:self.frames[s][3] for s in self.sides if s in self.frames},
+                names={s:self.names(s) for s in self.sides},
+                measured={s:[self.feedback.get(n,(None,0))[0] for n in self.names(s)] for s in self.sides}))
+        return response
 
     def publish(self, side, values):
         msg = JointTrajectory()
@@ -199,7 +235,7 @@ class ContactGloveSharpa(Node):
                 self.auto_arm_pending = False
                 response.success, response.message = True, 'Disabled; holds last target'
             elif not self.ready(time.monotonic()):
-                response.success, response.message = False, 'Need fresh tracked glove and joint feedback'
+                response.success, response.message = False, self.wait_reason
             else:
                 self.command = {s: [self.feedback[n][0] for n in self.names(s)] for s in self.sides}
                 self.last_tick = time.monotonic()

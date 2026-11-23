@@ -12,9 +12,9 @@ FLEXION = (
 
 # SDK V2 calls these MCP tilt angles. CMC abduction and pinky CMC remain held.
 ABDUCTION = (
-    ('thumb_MCP_AA', 3, 0.35), ('index_MCP_AA', 7, 0.35),
-    ('middle_MCP_AA', 11, 0.35), ('ring_MCP_AA', 15, 0.35),
-    ('pinky_MCP_AA', 19, 0.35),
+    ('thumb_MCP_AA', 3, 0.3491), ('index_MCP_AA', 7, 0.3491),
+    ('middle_MCP_AA', 11, 0.3491), ('ring_MCP_AA', 15, 0.3491),
+    ('pinky_MCP_AA', 19, 0.3491),
 )
 
 

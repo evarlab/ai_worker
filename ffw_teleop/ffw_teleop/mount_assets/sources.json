@@ -1,0 +1,52 @@
+{
+  "vendor/three.module.js": {
+    "url": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "sha256": "ce1fa418de16a19495a9f72495580e3015d7745c296d3ce0485897f902ddedfb",
+    "bytes": 1314681
+  },
+  "vendor/THREE-LICENSE.txt": {
+    "url": "https://cdn.jsdelivr.net/npm/three@0.170.0/LICENSE",
+    "sha256": "4c40a1ef62450b857c3b2aaf294936304cd552d965fbcd9d32d4c5bcf4ba4454",
+    "bytes": 1081
+  },
+  "vendor/jsm/controls/OrbitControls.js": {
+    "url": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/controls/OrbitControls.js",
+    "sha256": "80efaadea4f8a636a65fb0bd08bfef62f3d93a0bb94e2e7500f23176c5c07f4e",
+    "bytes": 32134
+  },
+  "vendor/jsm/loaders/GLTFLoader.js": {
+    "url": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/loaders/GLTFLoader.js",
+    "sha256": "45139faddd5aaf48ed2d62203d976e5cbd703db1a592de40527f9f6cf58abd44",
+    "bytes": 110273
+  },
+  "vendor/jsm/utils/BufferGeometryUtils.js": {
+    "url": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/utils/BufferGeometryUtils.js",
+    "sha256": "c25b7930e570e9ec56173cd3b866ec8d2e10016630db3937efb439daf1cedbf6",
+    "bytes": 31768
+  },
+  "models/LICENSE.md": {
+    "url": "https://raw.githubusercontent.com/immersive-web/webxr-input-profiles/main/packages/assets/LICENSE.md",
+    "sha256": "0ef0c87e8ffdd0681f332dc3b39f284dee2166d1f853fabc3853884fe81a6f30",
+    "bytes": 1094
+  },
+  "models/meta-quest-touch-pro-left.glb": {
+    "url": "https://raw.githubusercontent.com/immersive-web/webxr-input-profiles/main/packages/assets/profiles/meta-quest-touch-pro/left.glb",
+    "sha256": "5f64ff585815292bd7e35ac0db67e269cd10dd9f215f8a5f14b29de4c83819f9",
+    "bytes": 297644
+  },
+  "models/meta-quest-touch-pro-right.glb": {
+    "url": "https://raw.githubusercontent.com/immersive-web/webxr-input-profiles/main/packages/assets/profiles/meta-quest-touch-pro/right.glb",
+    "sha256": "de508862ac1460814b9236441982dfe2611ac5b1002d48503186e35a09d38272",
+    "bytes": 300304
+  },
+  "models/meta-quest-touch-plus-left.glb": {
+    "url": "https://raw.githubusercontent.com/immersive-web/webxr-input-profiles/main/packages/assets/profiles/meta-quest-touch-plus/left.glb",
+    "sha256": "41a35b80221398d37029cbfaa9e39084ccd43e0206be72a5e8460f52e7882cb4",
+    "bytes": 217984
+  },
+  "models/meta-quest-touch-plus-right.glb": {
+    "url": "https://raw.githubusercontent.com/immersive-web/webxr-input-profiles/main/packages/assets/profiles/meta-quest-touch-plus/right.glb",
+    "sha256": "5126d638fb1d03e05d16d8eec3b31b9588df88eaa8b42cc21b857fac3bd44916",
+    "bytes": 213868
+  }
+}

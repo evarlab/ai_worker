@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ContactGlove × Quest 取り付け調整</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#10151c;color:#e9edf4;font:15px system-ui}header{padding:18px 24px;border-bottom:1px solid #303944}h1{font-size:21px;margin:0 0 6px}header p{margin:0;color:#acb8c9}main{display:grid;grid-template-columns:minmax(400px,1fr) 370px;height:calc(100vh - 100px)}#view{position:relative;min-height:450px}canvas{display:block;width:100%;height:100%}.legend{position:absolute;left:20px;bottom:18px;background:#10151cdd;padding:12px;border-radius:8px;line-height:1.7;pointer-events:none}.green{color:#70efac}.red{color:#ff7e7e}.blue{color:#78adff}aside{overflow:auto;padding:20px;background:#19212c;border-left:1px solid #303944}label{display:block;margin:14px 0 7px}select,button,input[type=number]{background:#263342;color:#fff;border:1px solid #536378;border-radius:5px;padding:8px;font:inherit}button{cursor:pointer;margin:4px 4px 4px 0}button:disabled{opacity:.4;cursor:default}button.primary{background:#26764f;border-color:#409967;width:100%;margin-top:16px}select{width:100%}.slider{display:grid;grid-template-columns:35px 1fr 78px;align-items:center;gap:8px;margin:10px 0}input[type=range]{width:100%;accent-color:#6ed99d}input[type=number]{width:78px;padding:6px}h2{font-size:16px;margin:24px 0 8px}.note{color:#acb8c9;font-size:13px;line-height:1.6}#state{white-space:pre-line;line-height:1.6;padding:12px 0}#error{color:#ff9797;white-space:pre-wrap}#saved{color:#70efac;white-space:pre-wrap}.check{display:flex;align-items:center;gap:8px}.check input{width:16px;height:16px}details{margin-top:16px}pre{font-size:11px;overflow:auto}a{color:#8dbeff}@media(max-width:800px){main{display:flex;flex-direction:column;height:auto}#view{height:55vh}aside{border:0}}
+</style>
+<script type="importmap">{"imports":{"three":"/mount-assets/vendor/three.module.js"}}</script>
+</head><body>
+<header><h1>ContactGlove × Quest　取り付け位置・角度の調整</h1><p>緑の手の骨格を、実際に手の甲へ固定したコントローラとの位置関係に合わせてください。</p></header>
+<main><section id="view"><div class="legend">ドラッグ：回転 ／ ホイール：拡大 ／ 右ドラッグ：移動<br><span class="red">X 赤</span>・<span class="green">Y 緑</span>・<span class="blue">Z 青</span>　格子は1cm<br>白：コントローラの追跡原点　<span class="green">緑：SDK手モデルの原点</span></div></section>
+<aside>
+<label for="side">調整する手</label><select id="side"><option value="left">左手</option><option value="right">右手</option></select>
+<label for="model">コントローラの外形モデル</label><select id="model"><option value="meta-quest-touch-pro">Quest Touch Pro</option><option value="meta-quest-touch-plus">Quest Touch Plus</option></select>
+<p class="note">実際のコントローラに合う種類を選択してください。モデルの原点はWebXRのgrip追跡原点です。</p>
+<h2>手モデル原点の位置 <small>（mm）</small></h2><div id="position"></div>
+<h2>固定軸で回転 <small>（操作角度・度）</small></h2><div id="rotation"></div>
+<p class="note">各つまみはコントローラの固定X・Y・Z軸で回します。大きく回した後は「回転つまみを0に」で続けられます。</p><button id="rebase">回転つまみを0に</button><button id="freeze">指の姿勢を固定</button><button id="reset">未校正の初期表示へ</button><button id="reload">保存値を読み直す</button><button id="fit">表示を中央へ</button>
+<label class="check"><input id="live" type="checkbox">収集中のコントローラ姿勢で動かす</label>
+<button id="save" class="primary">この手の補正を保存して適用</button>
+<div id="state">SDK骨格を待っています…</div><div id="saved"></div><div id="error"></div>
+<p class="note">目視による手動調整です。手の形はDivingStationのリターゲット済み骨格をそのまま使います。指の長さを任意に拡縮しません。記録中の保存・適用はできません。</p>
+<details><summary>取り付け変換（メートル・4×4）</summary><pre id="matrix"></pre></details>
+</aside></main>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from '/mount-assets/vendor/jsm/controls/OrbitControls.js';
+import {GLTFLoader} from '/mount-assets/vendor/jsm/loaders/GLTFLoader.js';
+const $=id=>document.getElementById(id),token=new URLSearchParams(location.search).get('token')||'';
+const headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+const parents=[-1,0,1,2,3,0,5,6,7,8,0,10,11,12,13,0,15,16,17,18,0,20,21,22,23];
+const view=$('view'),scene=new THREE.Scene();scene.background=new THREE.Color('#10151c');
+const camera=new THREE.PerspectiveCamera(40,1,.001,20);camera.position.set(.27,.24,.35);
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.outputColorSpace=THREE.SRGBColorSpace;view.prepend(renderer.domElement);
+const controls=new OrbitControls(camera,renderer.domElement);controls.target.set(0,-.025,-.04);controls.enableDamping=true;
+scene.add(new THREE.HemisphereLight(0xffffff,0x46536b,2.2));const lamp=new THREE.DirectionalLight(0xffffff,3);lamp.position.set(.5,1,.6);scene.add(lamp);
+const root=new THREE.Group();scene.add(root);
+const grid=new THREE.GridHelper(.6,60,0x536a79,0x25323d);grid.position.y=-.16;scene.add(grid);
+root.add(new THREE.AxesHelper(.10));root.add(new THREE.Mesh(new THREE.SphereGeometry(.004),new THREE.MeshStandardMaterial({color:0xffffff})));
+const controller=new THREE.Group();root.add(controller);
+const hand=new THREE.Group();root.add(hand);hand.add(new THREE.AxesHelper(.08));
+const origin=new THREE.Mesh(new THREE.SphereGeometry(.006),new THREE.MeshStandardMaterial({color:0x70efac}));hand.add(origin);
+const jointGeometry=new THREE.SphereGeometry(.0035,10,8),jointMaterial=new THREE.MeshStandardMaterial({color:0xa1f3c1});
+const joints=Array.from({length:25},()=>{const m=new THREE.Mesh(jointGeometry,jointMaterial);hand.add(m);return m;});
+const boneGeometry=new THREE.CylinderGeometry(.002,.002,1,8),boneMaterial=new THREE.MeshStandardMaterial({color:0x4ca979});
+const bones=Array.from({length:24},()=>{const m=new THREE.Mesh(boneGeometry,boneMaterial);hand.add(m);return m;});
+const defaults=()=>({position:[0,0,0],rotation:[0,0,0],quaternion:new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),-Math.PI/2).toArray(),model:'meta-quest-touch-pro',saved:false});
+const drafts={left:defaults(),right:defaults()},frozen={left:null,right:null};let side='left',latest=null,currentSkeleton=null,loadVersion=0,firstPoll=true,modelReady=false;
+const loader=new GLTFLoader(),up=new THREE.Vector3(0,1,0);
+function orientation(draft){if(!draft.quaternion)draft.quaternion=new THREE.Quaternion().setFromEuler(new THREE.Euler(...draft.rotation.map(THREE.MathUtils.degToRad),'XYZ')).toArray();return new THREE.Quaternion().fromArray(draft.quaternion).normalize();}
+function matrixFor(draft){const q=orientation(draft);return new THREE.Matrix4().compose(new THREE.Vector3(...draft.position.map(v=>v/1000)),q,new THREE.Vector3(1,1,1));}
+function rows(matrix){return Array.from({length:4},(_,r)=>Array.from({length:4},(_,c)=>matrix.elements[c*4+r]));}
+function fromRows(values){return new THREE.Matrix4().set(...values.flat());}
+function setMatrix(values,draft){const p=new THREE.Vector3(),q=new THREE.Quaternion(),scale=new THREE.Vector3();fromRows(values).decompose(p,q,scale);draft.position=p.toArray().map(v=>v*1000);draft.quaternion=q.normalize().toArray();draft.rotation=[0,0,0];}
+function updateTransform(){hand.matrixAutoUpdate=false;hand.matrix.copy(matrixFor(drafts[side]));$('matrix').textContent=JSON.stringify(rows(hand.matrix),null,2);}
+function changed(){drafts[side].saved=false;$('saved').textContent='未保存の調整値';updateTransform();}
+for(const [group,type,max,step] of [['position','position',250,1],['rotation','rotation',180,1]]){
+ for(let i=0;i<3;i++){
+  const row=document.createElement('div');row.className='slider';row.innerHTML=`<span>${'XYZ'[i]}</span><input type="range" min="${-max}" max="${max}" step="${step}" aria-label="${type} ${'XYZ'[i]}"><input type="number" min="${-max}" max="${max}" step="${step}" aria-label="${type} ${'XYZ'[i]} value">`;
+  const [range,number]=row.querySelectorAll('input');range.id=`${type}-${i}`;number.id=`${type}-${i}-number`;
+  const adjust=event=>{const v=Number(event.target.value);if(!Number.isFinite(v)||v < -max||v > max)return;if(type==='rotation'){const delta=THREE.MathUtils.degToRad(v-drafts[side].rotation[i]);const axis=new THREE.Vector3().setComponent(i,1);drafts[side].quaternion=orientation(drafts[side]).premultiply(new THREE.Quaternion().setFromAxisAngle(axis,delta)).normalize().toArray();}drafts[side][type][i]=v;range.value=v;number.value=v;changed();};range.addEventListener('input',adjust);number.addEventListener('input',adjust);$(group).append(row);
+ }
+}
+function syncControls(){for(const type of ['position','rotation'])for(let i=0;i<3;i++){const v=drafts[side][type][i];$(`${type}-${i}`).value=v;$(`${type}-${i}-number`).value=Math.round(v*10)/10;}$('model').value=drafts[side].model;$('saved').textContent=drafts[side].saved?'保存済みの補正値':'未校正／未保存の表示';updateTransform();}
+async function loadController(){const version=++loadVersion;modelReady=false;try{const gltf=await loader.loadAsync(`/mount-assets/models/${drafts[side].model}-${side}.glb`);if(version!==loadVersion)return;controller.clear();controller.add(gltf.scene);modelReady=true;$('error').textContent='';}catch(error){$('error').textContent='コントローラモデルを読み込めません: '+error.message;}}
+function applySkeleton(skeleton){currentSkeleton=skeleton;const positions=skeleton?.positions_m;
+ const valid=Array.isArray(positions)&&positions.length===25;
+ for(const m of [...joints,...bones])m.visible=valid;origin.visible=valid;
+ if(!valid)return;
+ positions.forEach((p,i)=>joints[i].position.set(...p));
+ for(let i=1;i<25;i++){const a=joints[parents[i]].position,b=joints[i].position,bone=bones[i-1],direction=new THREE.Vector3().subVectors(b,a),length=direction.length();bone.visible=length>1e-6;if(length>1e-6){bone.position.copy(a).add(b).multiplyScalar(.5);bone.scale.set(1,length,1);bone.quaternion.setFromUnitVectors(up,direction.normalize());}}
+}
+function updateData(){if(!latest)return;const age=latest.status.ages_s['skeleton_'+side],skeleton=frozen[side]||(age<.5?latest.skeletons[side]:null);applySkeleton(skeleton);
+ $('freeze').textContent=frozen[side]?'指の固定を解除':'指の姿勢を固定';
+ const recording=latest.status.recording;$('save').disabled=recording;
+ $('state').textContent=(skeleton?`${frozen[side]?'固定した':'受信中の'}SDK骨格：25点\nプロファイル：${skeleton.profile_uuid||'不明'}\n`:'SDK骨格が未受信、追跡無効、または0.5秒以上古い状態です。\n')+`記録：${recording?'ON（保存は停止後に）':'OFF'}\nモデル：${modelReady?'読込済み':'読込中'}`;
+ root.matrixAutoUpdate=false;root.matrix.identity();
+ if($('live').checked&&latest.xr){const data=latest.xr,pose=data[side];if(pose){if(data['T_board_'+side+'_controller'])root.matrix.copy(fromRows(data['T_board_'+side+'_controller']));else if(data.head)root.matrix.copy(new THREE.Matrix4().fromArray(data.head).invert().multiply(new THREE.Matrix4().fromArray(pose)));}}
+}
+async function request(path,body){const response=await fetch(path,{headers,method:body?'POST':'GET',body:body?JSON.stringify(body):undefined});if(!response.ok)throw new Error(await response.text());return response.json();}
+function loadSaved(){for(const name of ['left','right']){const saved=latest?.mounts[name];if(!saved)continue;if(saved.target_frame!=='contactglove_skeleton_root')continue;setMatrix(saved.T_controller_wrist,drafts[name]);drafts[name].model=saved.controller_model||'meta-quest-touch-pro';drafts[name].saved=true;}syncControls();loadController();}
+let polling=false;
+async function poll(){if(polling)return;polling=true;try{latest=await request('/mount-state');if(firstPoll){firstPoll=false;if(!restoredDrafts)loadSaved();}updateData();}catch(error){$('error').textContent='受信エラー: '+error.message;}finally{polling=false;}}
+$('side').onchange=()=>{side=$('side').value;syncControls();loadController();updateData();};
+$('model').onchange=()=>{drafts[side].model=$('model').value;changed();loadController();};
+$('freeze').onclick=()=>{if(frozen[side])frozen[side]=null;else if(currentSkeleton)frozen[side]=structuredClone(currentSkeleton);updateData();};
+$('rebase').onclick=()=>{drafts[side].rotation=[0,0,0];syncControls();};
+$('reset').onclick=()=>{drafts[side]=defaults();syncControls();loadController();};
+$('reload').onclick=loadSaved;
+$('fit').onclick=()=>{controls.target.set(0,-.025,-.04);camera.position.set(.27,.24,.35);controls.update();};
+$('live').onchange=()=>{updateData();if($('live').checked){const p=new THREE.Vector3().setFromMatrixPosition(root.matrix);controls.target.copy(p);camera.position.copy(p).add(new THREE.Vector3(.45,.35,.6));}};
+$('save').onclick=async()=>{const selected=side;try{$('save').disabled=true;const result=await request('/control',{action:'mount-set',side:selected,T_controller_wrist:rows(matrixFor(drafts[selected])),controller_model:drafts[selected].model});drafts[selected].saved=true;$('saved').textContent=`${selected==='left'?'左手':'右手'}の取り付け補正を保存・適用しました。`;latest.status=result.status;$('error').textContent='';}catch(error){$('error').textContent='保存できません: '+error.message;}finally{$('save').disabled=!!latest?.status.recording;}};
+new ResizeObserver(()=>{const w=view.clientWidth,h=view.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}).observe(view);
+let restoredDrafts=false;
+try{const saved=JSON.parse(sessionStorage.getItem('mountEditorDraftsV2')||'null');if(saved){for(const name of ['left','right']){if(saved.drafts[name]){Object.assign(drafts[name],saved.drafts[name]);orientation(drafts[name]);drafts[name].rotation=[0,0,0];}}side=saved.side||'left';$('side').value=side;restoredDrafts=true;sessionStorage.removeItem('mountEditorDraftsV2');}}catch(error){console.warn(error);}
+function animate(){requestAnimationFrame(animate);controls.update();renderer.render(scene,camera);}syncControls();loadController();applySkeleton(null);poll();setInterval(poll,100);animate();
+// Small read-only diagnostics for runtime verification.
+window.mountEditor={renderer,scene,root,hand,joints,drafts,get latest(){return latest;},get modelReady(){return modelReady;},get selectedSide(){return side;}};
+</script></body></html>

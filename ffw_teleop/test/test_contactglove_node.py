@@ -164,3 +164,31 @@ def test_abduction_adds_five_lateral_joints(monkeypatch):
         n.close()
         n.destroy_node()
         rclpy.shutdown()
+
+
+def test_manual_gate_reports_missing_input_then_enables_from_feedback(node):
+    from std_srvs.srv import Trigger
+    node.auto_arm_pending=False
+    status=node.on_status(Trigger.Request(),Trigger.Response())
+    assert not status.success and not node.enabled
+    assert 'glove' in status.message
+    feed(node)
+    assert not node.enabled
+    status=node.on_status(Trigger.Request(),Trigger.Response())
+    assert status.success and not node.enabled
+    assert enable(node).success and node.enabled
+
+
+def test_hardware_hold_blocks_enable_and_stops_tracking(node):
+    from diagnostic_msgs.msg import DiagnosticArray,DiagnosticStatus,KeyValue
+    feed(node)
+    node.p['require_hardware_diagnostics']=True
+    assert not enable(node).success
+    assert 'hardware' in node.wait_reason
+    healthy=DiagnosticStatus(name='sharpa_wave: right hand',level=DiagnosticStatus.OK,message='enabled',values=[KeyValue(key='ros2_control_active',value='true')])
+    node.on_diagnostics(DiagnosticArray(status=[healthy]))
+    assert enable(node).success
+    held=DiagnosticStatus(name='sharpa_wave: right hand',level=DiagnosticStatus.WARN,message='holding: joint limit',values=[KeyValue(key='ros2_control_active',value='true')])
+    node.on_diagnostics(DiagnosticArray(status=[held]));node.tick()
+    assert not node.enabled
+    assert not enable(node).success and 'holding' in node.wait_reason

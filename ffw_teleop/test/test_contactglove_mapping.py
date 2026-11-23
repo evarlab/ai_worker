@@ -47,3 +47,10 @@ def test_sideways_mapping_uses_tilt_and_preserves_negative_angles():
     values = abduction_targets(angles, [1.0]*5, [0.1]*5, clamp=False)
     assert values == pytest.approx([math.radians(-10*(i+1))+.1 for i in range(5)])
     assert len({name for name, _, _ in FLEXION+ABDUCTION}) == 20
+
+
+def test_abduction_clamp_stays_inside_sharpa_urdf_limits():
+    positive=abduction_targets([180.]*20,[1.]*5,[0.]*5)
+    negative=abduction_targets([-180.]*20,[1.]*5,[0.]*5)
+    assert positive==pytest.approx([.3491]*5)
+    assert negative==pytest.approx([-.3491]*5)

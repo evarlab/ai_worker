@@ -116,3 +116,23 @@ def test_stale_recorder_is_never_signalled(tmp_path, monkeypatch):
     monkeypatch.setattr(recording_control.os, 'kill', lambda *_: pytest.fail('stale pid was signalled'))
     assert not recording_control.recording_active(93)
     assert recording_control.stop_recording(93) == 0
+
+
+def test_human_pedals_only_use_collector_and_dry_run_is_inert():
+    from ffw_teleop.foot_pedal import HumanPedalActions
+    calls=[]
+    def request(data):
+        calls.append(data)
+        return {'result':None,'status':{'following':True,'recording':False}}
+    manager=HumanPedalActions('pick', request=request)
+    for action in ('teleop','record','home'):manager.press(action)
+    assert calls==[{'action':'follow-toggle'},
+                   {'action':'toggle','task':'pick','outcome':'success'},
+                   {'action':'stop','outcome':'failure'}]
+    manager.shutdown()
+    assert calls[-1]=={'action':'follow-stop'}
+    calls.clear()
+    manager=HumanPedalActions(dry_run=True,request=request)
+    for action in ('teleop','record','home'):manager.press(action)
+    manager.shutdown()
+    assert not calls

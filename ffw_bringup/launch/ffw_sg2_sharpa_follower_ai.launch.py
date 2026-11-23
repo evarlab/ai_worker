@@ -35,6 +35,8 @@ SHARPA_LEFT_IP / SHARPA_RIGHT_IP / SHARPA_LEFT_SERIAL / SHARPA_RIGHT_SERIAL (emp
 of that side). A serial number, when given, takes precedence over the IP.
 """
 
+import math
+
 from ffw_bringup.launch_utils import command_topic
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
@@ -109,6 +111,10 @@ def declare_arguments():
         DeclareLaunchArgument('init_position', default_value='true',
                               description='Move arms, head, lift and steering to zero and open '
                                           'the hands at start-up.'),
+        DeclareLaunchArgument('startup_head_down', default_value='false',
+                              choices=['true', 'false'],
+                              description='With init_position=false, move only the head to '
+                                          '30 degrees down and zero yaw after controllers start.'),
         DeclareLaunchArgument('model', default_value='ffw_sg2_rev1_follower',
                               description='Robot model name.'),
         DeclareLaunchArgument('use_head_eef_tracker', default_value='false',
@@ -244,6 +250,23 @@ def launch_setup(context):
             output='screen',
         )
 
+    startup_head_executor = Node(
+        package='ffw_bringup',
+        executable='joint_trajectory_executor',
+        name='startup_head_joint_trajectory_executor',
+        output='screen',
+        parameters=[{
+            'joint_names': ['head_joint1', 'head_joint2'],
+            'step_names': ['home'],
+            'home': [math.pi / 6.0, 0.0],
+            'duration': 5.0,
+            'position_tolerance': 0.02,
+            'velocity_tolerance': 0.01,
+            'action_topic': '/head_controller/follow_joint_trajectory',
+            'joint_states_topic': '/joint_states',
+        }],
+    )
+
     body_executors = [executor(name) for name in ('arm_l', 'arm_r', 'head', 'lift')]
     hand_executors = [executor(HAND_CONTROLLERS[side]) for side in hands]
     steering_executor = Node(
@@ -274,6 +297,15 @@ def launch_setup(context):
                                    TimerAction(period=5.0, actions=[swerve_drive_spawner])]),
             condition=IfCondition(init_position)),
     ]
+    if LaunchConfiguration('startup_head_down').perform(context).lower() == 'true':
+        actions.append(RegisterEventHandler(
+            OnProcessExit(
+                target_action=body_controller_spawner,
+                on_exit=lambda event, _context: [startup_head_executor]
+                if event.returncode == 0 else
+                [LogInfo(msg='Body controllers failed; startup head motion skipped.')]),
+            condition=UnlessCondition(init_position),
+        ))
     if hand_controller_spawner is not None:
         actions += [
             hand_controller_spawner,

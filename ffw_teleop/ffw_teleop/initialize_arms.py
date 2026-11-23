@@ -8,7 +8,6 @@ import time
 
 import rclpy
 from builtin_interfaces.msg import Duration as DurationMsg
-from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from rclpy.signals import SignalHandlerOptions
@@ -17,11 +16,11 @@ from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
 from .stop_signals import flush_holds
 from .teleop_recording import SessionRecorder
-from .vr_start_pose import relaxed_arm_positions
+from .vr_start_pose import relaxed_arm_positions, load_start_pose
 
 
 class ArmInitializer(Node):
-    def __init__(self, cancel_file=None, cancel_token='', minimum_duration=5., palms='inward', maximum_speed=.4):
+    def __init__(self, cancel_file=None, cancel_token='', minimum_duration=5., palms='inward', maximum_speed=.4, target_profile=None):
         super().__init__('initialize_vr_arms')
         self.cancel_file = Path(cancel_file) if cancel_file else None
         self.cancel_token = cancel_token
@@ -30,7 +29,14 @@ class ArmInitializer(Node):
         self.cancelled = False
         self.sent = False
         self.feedback = {}
-        self.targets = relaxed_arm_positions(palms)
+        self.required_lift = None
+        self.lift_tolerance = .01
+        if target_profile is None:
+            self.targets = relaxed_arm_positions(palms)
+            self.pose_label = 'URDF初期姿勢'
+        else:
+            self.targets, self.required_lift, self.lift_tolerance = target_profile
+            self.pose_label = '登録済みの待機姿勢'
         self.recording = SessionRecorder('arm-initialization')
         self.pubs = {side: self.create_publisher(JointTrajectory,
             f'/arm_{side}_controller/joint_trajectory', 1) for side in ('l', 'r')}
@@ -41,7 +47,7 @@ class ArmInitializer(Node):
         if len(msg.name) != len(msg.position):
             return
         for name, value in zip(msg.name, msg.position):
-            if name in self.targets and math.isfinite(value):
+            if (name in self.targets or (name == 'lift_joint' and self.required_lift is not None)) and math.isfinite(value):
                 self.feedback[name] = (value, now)
         self.recording.record('measured_joints', msg, every=.05)
 
@@ -55,7 +61,12 @@ class ArmInitializer(Node):
 
     def fresh(self):
         now = time.monotonic()
-        return all(name in self.feedback and now-self.feedback[name][1] < .3 for name in self.targets)
+        names = list(self.targets) + (['lift_joint'] if self.required_lift is not None else [])
+        return all(name in self.feedback and now-self.feedback[name][1] < .3 for name in names)
+
+    def check_lift(self):
+        if self.required_lift is not None and abs(self.feedback['lift_joint'][0]-self.required_lift) > self.lift_tolerance:
+            raise RuntimeError(f'liftが待機姿勢の基準（{self.required_lift:+.3f}m）と違います。10番で手動調整してください。追従は開始しません')
 
     @staticmethod
     def names(side):
@@ -91,18 +102,20 @@ class ArmInitializer(Node):
             rclpy.spin_once(self, timeout_sec=.02)
         if not self.fresh():
             raise RuntimeError('腕の実測値が途切れています')
+        self.check_lift()
         start = {n: self.feedback[n][0] for n in self.targets}
         maximum_delta = max(abs(start[n]-self.targets[n]) for n in self.targets)
         if maximum_delta < .02:
             self.recording.record('arrived', dict(max_error_rad=maximum_delta, already_at_reference=True))
-            print('既にURDF初期姿勢です。この姿勢でVRの基準を登録します。', flush=True)
+            print(f'既に{self.pose_label}です。この姿勢でVRの基準を登録します。', flush=True)
             return
         # Zero endpoint velocity and acceleration yield a quintic JTC spline.
         # Its peak speed is 1.875*distance/duration.
         duration = max(self.minimum_duration, maximum_delta*1.875/self.maximum_speed)
         ns = int(duration*1e9)
-        stamp = (self.get_clock().now()+Duration(seconds=.15)).to_msg()
-        print(f'URDF初期姿勢へ両腕を移動します（約{duration:.1f}秒）。停止は8番。', flush=True)
+        # Zero header stamp starts on receipt in the robot clock domain.
+        # PC wall time may differ from the robot by days; do not schedule with it.
+        print(f'{self.pose_label}へ両腕を移動します（約{duration:.1f}秒）。停止は8番。', flush=True)
         self.recording.record('move_start', dict(initial=start, target=self.targets, duration=duration))
         for side, pub in self.pubs.items():
             names = self.names(side)
@@ -110,7 +123,6 @@ class ArmInitializer(Node):
                 JointTrajectoryPoint(positions=[start[n] for n in names], velocities=[0.]*7, accelerations=[0.]*7),
                 JointTrajectoryPoint(positions=[self.targets[n] for n in names], velocities=[0.]*7,
                     accelerations=[0.]*7, time_from_start=DurationMsg(sec=ns//1_000_000_000, nanosec=ns%1_000_000_000))])
-            trajectory.header.stamp = stamp
             pub.publish(trajectory)
         self.sent = True
         started = time.monotonic()
@@ -120,13 +132,14 @@ class ArmInitializer(Node):
             rclpy.spin_once(self, timeout_sec=.02)
             if not self.fresh():
                 raise RuntimeError('移動中に腕の実測値が途切れました。追従は開始しません')
+            self.check_lift()
             error = max(abs(self.feedback[n][0]-self.targets[n]) for n in self.targets)
             if time.monotonic()-started >= duration+.15 and error < .035:
                 arrived_since = arrived_since or time.monotonic()
                 if time.monotonic()-arrived_since >= .4:
                     self.recording.record('arrived', dict(max_error_rad=error))
                     self.hold()
-                    print('URDF初期姿勢へ到着しました。この姿勢でVRの基準を登録します。', flush=True)
+                    print(f'{self.pose_label}へ到着しました。この姿勢でVRの基準を登録します。', flush=True)
                     return
             else:
                 arrived_since = None
@@ -139,13 +152,18 @@ def main(args=None):
     parser.add_argument('--minimum-duration', type=float, default=5.)
     parser.add_argument('--maximum-speed', type=float, default=.4, help='最大関節速度[rad/s]')
     parser.add_argument('--palms', choices=('inward', 'front'), default=os.environ.get('VR_PREVIEW_PALMS', 'inward'))
+    parser.add_argument('--target-file', type=Path, help='両腕14関節とlift基準を含む待機姿勢JSON')
     options = parser.parse_args(args)
+    target_profile = None
+    if options.target_file:
+        try: target_profile = load_start_pose(options.target_file)
+        except (OSError, ValueError, KeyError, TypeError) as error: parser.error(str(error))
     if not math.isfinite(options.minimum_duration) or options.minimum_duration < 1. or not math.isfinite(options.maximum_speed) or not 0 < options.maximum_speed <= .4:
         parser.error('minimum-durationは1秒以上、maximum-speedは0より大きく0.4以下')
     rclpy.init(args=[], domain_id=options.domain, signal_handler_options=SignalHandlerOptions.NO)
     node = ArmInitializer(os.environ.get('AI_WORKER_OPERATION_FILE'), os.environ.get('AI_WORKER_OPERATION_TOKEN', ''),
                           palms=options.palms, minimum_duration=options.minimum_duration,
-                          maximum_speed=options.maximum_speed)
+                          maximum_speed=options.maximum_speed, target_profile=target_profile)
     previous = {}
     for sig in (signal.SIGINT, signal.SIGTERM):
         previous[sig] = signal.signal(sig, lambda *_: setattr(node, 'cancelled', True))

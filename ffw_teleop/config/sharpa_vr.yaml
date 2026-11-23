@@ -8,11 +8,11 @@ sharpa_vr_bridge:
     rate: 50.0
     relative_pose: true  # anchor current VR pose to the measured robot wrists on activation
     position_scale: 1.0
-    trajectory_time: 0.05
-    max_pose_step_m: 0.8
-    max_pose_step_deg: 170.0
-    goal_speed_mps: 0.8
-    goal_speed_radps: 3.0
+    trajectory_time: 0.1
+    max_pose_step_m: 0.15
+    max_pose_step_deg: 45.0
+    goal_speed_mps: 0.15
+    goal_speed_radps: 0.8
     ik_timeout: 1.0
     startup_grace: 4.0
     calibration_file: '~/.config/ai_worker/vr_mount_calibration.yaml'

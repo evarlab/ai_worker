@@ -1,9 +1,12 @@
 <!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Human demonstration capture</title>
-<style>body{font:20px system-ui;background:#111827;color:#f9fafb;max-width:850px;margin:30px auto;padding:20px}button,select{font:inherit;margin:10px;padding:12px}video{max-width:100%;width:480px}pre{white-space:pre-wrap}#error{color:#fca5a5}</style>
+<style>body{font:20px system-ui;background:#111827;color:#f9fafb;max-width:850px;margin:30px auto;padding:20px}button,select{font:inherit;margin:10px;padding:12px}video{max-width:100%;width:480px}pre{white-space:pre-wrap}#error{color:#fca5a5}body.xr-active>*{display:none!important}</style>
 <h1>人間のタスク収集</h1><p>手の位置・向き、グローブ、外向きカメラを収集します。開始・終了はPCのターミナルから操作できます。</p>
-<button id="list">カメラを選ぶ</button><select id="cameras"></select><button id="camera">選択したカメラを使う</button>
-<button id="xr">Enter XR</button><p id="error"></p><video id="video" autoplay muted playsinline></video><pre id="status">接続中…</pre>
+<button id="camera">外向きカメラを自動接続／再接続</button>
+<button id="xr">Enter XR</button><p id="error"></p>
+<video id="video" autoplay muted playsinline></video>
+<canvas id="arucoView" hidden style="max-width:100%;width:480px"></canvas>
+<pre id="status">接続中…</pre>
 <canvas id="canvas" hidden></canvas><canvas id="xrCanvas" hidden></canvas>
 <script>
 'use strict';
@@ -11,12 +14,13 @@ const token=new URLSearchParams(location.search).get('token')||'';
 const headers={Authorization:'Bearer '+token};
 const $=id=>document.getElementById(id);
 const trackingOnly=new URLSearchParams(location.search).get('tracking_only')==='1';
-if(trackingOnly){for(const id of ['list','cameras','camera','video'])$(id).hidden=true;document.querySelector('h1').textContent='Quest コントローラ追跡チェック';document.querySelector('p').textContent='Enter XRを押し、両コントローラを動かしてください。実機への指令・タスク収集は行いません。';}
+if(trackingOnly){for(const id of ['camera','video'])$(id).hidden=true;document.querySelector('h1').textContent='Quest コントローラ追跡チェック';document.querySelector('p').textContent='Enter XRを押し、両コントローラを動かしてください。実機への指令・タスク収集は行いません。';}
 const poseOnly=new URLSearchParams(location.search).get('pose_only')==='1';
-if(poseOnly){for(const id of ['list','cameras','camera','video'])$(id).hidden=true;document.querySelector('h1').textContent='人間実演の収集（手の姿勢＋指角度）';document.querySelector('p').textContent='Enter XRを押してください。記録の開始・終了はPCから操作します。今回はカメラ映像なしで、実機への出力はありません。';}
+const xrCameraPreview=new URLSearchParams(location.search).get('xr_preview')==='1';
+if(poseOnly){for(const id of ['camera','video'])$(id).hidden=true;document.querySelector('h1').textContent='人間実演の収集（手の姿勢＋指角度）';document.querySelector('p').textContent='Enter XRを押してください。記録の開始・終了はPCから操作します。今回はカメラ映像なしで、実機への出力はありません。';}
 const fail=e=>{$('error').textContent=String(e.message||e);};
 let ws,referenceId=null,session=null,lastPose=-Infinity,clock=null,cameraStream=null,uploadBusy=false,xrStarting=false;
-let sampleCount=0,imageCount=0,skipped=0,clockTimer=null;
+let sampleCount=0,imageCount=0,skipped=0,clockTimer=null,lastAruco=null,lastPreviewTime=-Infinity,lastImageRequest=-Infinity,lastCameraMediaTime=-1;
 const send=(event,data)=>{if(ws?.readyState===WebSocket.OPEN&&ws.bufferedAmount<128000)ws.send(JSON.stringify({event,data}));};
 function connect(){
  ws=new WebSocket(`wss://${location.host}/events?token=${encodeURIComponent(token)}`);
@@ -37,33 +41,55 @@ async function checkedFetch(path,options={}){
  if(!response.ok)throw new Error(await response.text());
  return response.json();
 }
-$('list').onclick=async()=>{try{
- // Ask for the environment camera, never silently accept the avatar/selfie.
- const probe=await navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:'environment'}},audio:false});
- probe.getTracks().forEach(t=>t.stop());
- const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
- $('cameras').replaceChildren();
- for(const d of devices){const option=document.createElement('option');option.value=d.deviceId;option.textContent=d.label||'名称不明のカメラ';$('cameras').append(option);}
- const back=devices.find(d=>/back|rear|environment|passthrough/i.test(d.label));
- if(back)$('cameras').value=back.deviceId;
- $('error').textContent='外向きの実カメラを選択してください。avatar/front/selfieは使いません。';
-}catch(e){fail(e);send('camera_status',{available:false,error:String(e)});}};
-$('camera').onclick=async()=>{try{
- if(cameraStream)cameraStream.getTracks().forEach(t=>t.stop());
- const deviceId=$('cameras').value;if(!deviceId)throw new Error('先にカメラを選んでください');
- cameraStream=await navigator.mediaDevices.getUserMedia({video:{deviceId:{exact:deviceId},width:{ideal:1280},height:{ideal:960},frameRate:{ideal:15,max:15}},audio:false});
- const track=cameraStream.getVideoTracks()[0],settings=track.getSettings(),label=track.label;
- if(settings.facingMode!=='environment'&&!/back|rear|environment|passthrough/i.test(label)){
-  cameraStream.getTracks().forEach(t=>t.stop());throw new Error('外向きカメラと確認できません。avatar/front/selfieは使用不可です');
- }
- $('video').srcObject=cameraStream;await $('video').play();$('error').textContent='';
- send('camera_status',{available:true,label,settings,source:'quest_passthrough_browser',intrinsics:null,T_head_camera:null});
-}catch(e){fail(e);send('camera_status',{available:false,error:String(e)});}};
+let cameraStarting=false;
+function environmentTrack(track){
+ const label=track.label||'',settings=track.getSettings();
+ return !/avatar|selfie|front/i.test(label)&&
+  (settings.facingMode==='environment'||/back|rear|environment|passthrough/i.test(label));
+}
+async function startCamera(){
+ if(cameraStarting||poseOnly||trackingOnly)return;
+ cameraStarting=true;$('camera').disabled=true;$('error').textContent='外向きカメラへ接続中…（カメラ利用を許可してください）';
+ let candidate=null;
+ let constraints;
+ try{
+  const config=await checkedFetch('/capture-config');
+  constraints={width:{ideal:config.camera_size[0]},height:{ideal:config.camera_size[1]},resizeMode:{exact:'none'},frameRate:{ideal:15,max:15}};
+  if(cameraStream)cameraStream.getTracks().forEach(t=>t.stop());
+  cameraStream=null;
+  // An ideal constraint lets the browser ask for permission before exposing
+  // physical devices. Validate the track before any frame upload.
+  candidate=await navigator.mediaDevices.getUserMedia({video:{...constraints,facingMode:{ideal:'environment'}},audio:false});
+  if(!environmentTrack(candidate.getVideoTracks()[0])){
+   candidate.getTracks().forEach(t=>t.stop());candidate=null;
+   const devices=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput'&&!/avatar|selfie|front/i.test(d.label));
+   devices.sort((a,b)=>Number(/back|rear|environment|passthrough/i.test(b.label))-Number(/back|rear|environment|passthrough/i.test(a.label)));
+   for(const device of devices){
+    if(!device.deviceId)continue;
+    try{
+     candidate=await navigator.mediaDevices.getUserMedia({video:{...constraints,deviceId:{exact:device.deviceId}},audio:false});
+     if(environmentTrack(candidate.getVideoTracks()[0]))break;
+     candidate.getTracks().forEach(t=>t.stop());candidate=null;
+    }catch(e){if(candidate)candidate.getTracks().forEach(t=>t.stop());candidate=null;}
+   }
+  }
+  if(!candidate)throw new Error('外向きの実カメラがブラウザに公開されていません。カメラ権限とQuest Browserを確認してください。');
+  const track=candidate.getVideoTracks()[0],settings=track.getSettings(),label=track.label;
+  $('video').srcObject=candidate;await $('video').play();cameraStream=candidate;candidate=null;$('error').textContent='';
+  send('camera_status',{available:true,label,settings,selection:'automatic_environment',source:'quest_passthrough_browser',intrinsics:null,T_head_camera:null});
+ }catch(e){
+  if(candidate)candidate.getTracks().forEach(t=>t.stop());
+  if(cameraStream)cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null;
+  fail(e);send('camera_status',{available:false,error:String(e)});
+ }finally{cameraStarting=false;$('camera').disabled=false;}
+}
+$('camera').onclick=startCamera;
+if(!poseOnly&&!trackingOnly)startCamera();
 async function imageFrame(now,frameMetadata){
  const video=$('video');
- if(!cameraStream||!video.videoWidth)return;
+ if(!cameraStream||!video.videoWidth||video.currentTime===lastCameraMediaTime)return;
  if(uploadBusy){skipped++;return;}
- uploadBusy=true;
+ uploadBusy=true;lastCameraMediaTime=video.currentTime;
  try{
   const canvas=$('canvas');canvas.width=video.videoWidth;canvas.height=video.videoHeight;
   canvas.getContext('2d').drawImage(video,0,0);
@@ -74,31 +100,81 @@ async function imageFrame(now,frameMetadata){
    clock_sync:clock,intrinsics:null,T_head_camera:null,sensor_timestamp:null,
    timing:'browser_video_callback_not_sensor_exposure',camera_label:cameraStream.getVideoTracks()[0].label,skipped_images_total:skipped,settings};
   const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',.85));
-  await checkedFetch('/camera/quest_rgb',{method:'POST',headers:{'Content-Type':'image/jpeg','X-Frame-Metadata':JSON.stringify(metadata)},body:blob});
+  const result=await checkedFetch('/camera/quest_rgb',{method:'POST',headers:{'Content-Type':'image/jpeg','X-Frame-Metadata':JSON.stringify(metadata)},body:blob});
+  if(result.aruco){
+   lastAruco=result.aruco;lastPreviewTime=performance.now();
+   const view=$('arucoView');view.hidden=false;video.style.opacity='0';video.style.position='absolute';video.style.width='1px';video.style.height='1px';
+   view.width=canvas.width;view.height=canvas.height;
+   const ctx=view.getContext('2d');ctx.drawImage(canvas,0,0);ctx.strokeStyle='#00ff66';ctx.fillStyle='#00ff66';ctx.lineWidth=4;ctx.font='28px sans-serif';
+   for(const marker of result.aruco.markers){
+    ctx.beginPath();marker.corners.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));ctx.closePath();ctx.stroke();
+    ctx.fillText('ID '+marker.id,marker.corners[0][0],Math.max(30,marker.corners[0][1]-8));
+   }
+  }
   imageCount++;
  }catch(e){fail(e);}finally{uploadBusy=false;}
 }
 function videoTick(now,metadata){imageFrame(now,metadata);$('video').requestVideoFrameCallback(videoTick);}
 if('requestVideoFrameCallback'in HTMLVideoElement.prototype)$('video').requestVideoFrameCallback(videoTick);
 else setInterval(()=>imageFrame(performance.now(),null),100);
+function xrPreview(gl){
+ function shader(type,source){const s=gl.createShader(type);gl.shaderSource(s,source);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
+ const program=gl.createProgram();
+ gl.attachShader(program,shader(gl.VERTEX_SHADER,'attribute vec2 p; varying vec2 uv; uniform vec2 scale; void main(){uv=(p+1.0)*0.5;gl_Position=vec4(p*scale+vec2(0.0,-0.25),0.0,1.0);}'));
+ gl.attachShader(program,shader(gl.FRAGMENT_SHADER,'precision mediump float; varying vec2 uv; uniform sampler2D image; void main(){gl_FragColor=texture2D(image,uv);}'));
+ gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));
+ const buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+ const position=gl.getAttribLocation(program,'p'),scale=gl.getUniformLocation(program,'scale');
+ const texture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,texture);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+ let uploaded=-Infinity;
+ return {
+  draw(viewport){
+   const canvas=$('arucoView');if(!lastAruco||performance.now()-lastPreviewTime>1500)return;
+   gl.useProgram(program);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,texture);
+   if(uploaded!==lastPreviewTime){gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,canvas);uploaded=lastPreviewTime;}
+   gl.uniform1i(gl.getUniformLocation(program,'image'),0);
+   const width=.65,height=Math.min(.5,width*canvas.height/canvas.width*viewport.width/viewport.height);
+   gl.uniform2f(scale,width,height);gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.enableVertexAttribArray(position);gl.vertexAttribPointer(position,2,gl.FLOAT,false,0,0);
+   gl.disable(gl.DEPTH_TEST);gl.viewport(viewport.x,viewport.y,viewport.width,viewport.height);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+  },
+  dispose(){for(const s of gl.getAttachedShaders(program)){gl.detachShader(program,s);gl.deleteShader(s);}gl.deleteProgram(program);gl.deleteBuffer(buffer);gl.deleteTexture(texture);}
+ };
+}
 $('xr').onclick=async()=>{if(xrStarting)return;xrStarting=true;try{
  if(session){await session.end();return;}
  const mode=await navigator.xr.isSessionSupported('immersive-ar')?'immersive-ar':'immersive-vr';
- session=await navigator.xr.requestSession(mode,{requiredFeatures:['local-floor'],optionalFeatures:['dom-overlay'],domOverlay:{root:document.body}});
+ session=await navigator.xr.requestSession(mode,{requiredFeatures:['local-floor'],optionalFeatures:['hand-tracking','dom-overlay'],domOverlay:{root:document.body}});
+ $('error').textContent='';
+ document.body.classList.add('xr-active');
  const gl=$('xrCanvas').getContext('webgl',{xrCompatible:true,alpha:true});await gl.makeXRCompatible();
  session.updateRenderState({baseLayer:new XRWebGLLayer(session,gl)});
+ const preview=xrCameraPreview?xrPreview(gl):null;
  const ref=await session.requestReferenceSpace('local-floor');
  function reference(reason){referenceId=crypto.randomUUID();send('reference',{reference_id:referenceId,type:'local-floor',mode,reason,axes:'+X right +Y up -Z forward',units:'m'});}
  reference('session_start');ref.addEventListener('reset',()=>reference('reference_reset'));
- session.addEventListener('end',()=>{send('tracking',{reference_id:referenceId,state:'session_end'});session=null;$('xr').textContent='Enter XR';});
+ session.addEventListener('end',()=>{if(preview)preview.dispose();send('tracking',{reference_id:referenceId,state:'session_end'});session=null;document.body.classList.remove('xr-active');$('xr').textContent='Enter XR';});
  $('xr').textContent='Exit XR';
  function frame(now,xrFrame){
   if(!session)return;session.requestAnimationFrame(frame);
   const layer=session.renderState.baseLayer;gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
-  if(now-lastPose<1000/60)return;lastPose=now;
   const viewer=xrFrame.getViewerPose(ref);
-  const data={reference_id:referenceId,client_ms:now,clock_sync:clock,head:viewer?Array.from(viewer.transform.matrix):null,left:null,right:null,controllers:{},timing:'WebXR_predicted_display_time_not_camera_exposure'};
+  if(viewer&&preview)for(const view of viewer.views)preview.draw(layer.getViewport(view));
+  if(cameraStream&&now-lastImageRequest>1000/15){lastImageRequest=now;imageFrame(now,null);}
+  if(now-lastPose<1000/60)return;lastPose=now;
+  const data={reference_id:referenceId,client_ms:now,clock_sync:clock,head:viewer?Array.from(viewer.transform.matrix):null,left:null,right:null,controllers:{},hands:{},timing:'WebXR_predicted_display_time_not_camera_exposure'};
   for(const input of session.inputSources){if(!['left','right'].includes(input.handedness))continue;
+   if(input.hand){
+    const joints={};
+    for(const [name,space] of input.hand){
+     const joint=xrFrame.getJointPose(space,ref);
+     joints[name]=joint?{matrix:Array.from(joint.transform.matrix),radius_m:joint.radius,emulated_position:joint.emulatedPosition}:null;
+    }
+    data.hands[input.handedness]={profiles:Array.from(input.profiles),joints,
+     wrist:joints.wrist?.matrix??null,emulated_position:joints.wrist?.emulated_position??null};
+    continue;
+   }
    const pose=input.gripSpace?xrFrame.getPose(input.gripSpace,ref):null;
    data[input.handedness]=pose?Array.from(pose.transform.matrix):null;
    data.controllers[input.handedness]={profiles:input.profiles,buttons:input.gamepad?input.gamepad.buttons.map(b=>({pressed:b.pressed,value:b.value})):[],emulated_position:pose?.emulatedPosition??null};
@@ -106,6 +182,6 @@ $('xr').onclick=async()=>{if(xrStarting)return;xrStarting=true;try{
   send('xr',data);sampleCount++;
  }
  session.requestAnimationFrame(frame);
-}catch(e){if(session){try{await session.end();}catch(_){}session=null;}fail(e);}finally{xrStarting=false;}};
-setInterval(async()=>{try{const s=await checkedFetch('/status');$('status').textContent=JSON.stringify({...s,sent_pose:sampleCount,sent_images:imageCount,skipped_images:skipped},null,2);}catch(e){fail(e);}},1000);
+}catch(e){if(session){try{await session.end();}catch(_){}session=null;}document.body.classList.remove('xr-active');fail(e);}finally{xrStarting=false;}};
+setInterval(async()=>{try{const s=await checkedFetch('/status');$('status').textContent=JSON.stringify({...s,sent_pose:sampleCount,sent_images:imageCount,skipped_images:skipped,hand_tracking_requested:true,input_sources:Array.from(session?.inputSources||[]).map(input=>({side:input.handedness,kind:input.hand?'hand':'controller',profiles:Array.from(input.profiles)}))},null,2);}catch(e){fail(e);}},1000);
 </script></html>

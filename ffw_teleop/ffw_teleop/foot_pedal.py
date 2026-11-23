@@ -151,8 +151,43 @@ class PedalActions:
                 print('終了応答がありません。各アクションのログを確認してください。', flush=True)
 
 
+class HumanPedalActions:
+    """Collector HTTP only: never launches robot scripts or ROS publishers."""
+    def __init__(self, task='human_demo', dry_run=False, request=None):
+        from .human_demo_client import request as collector_request
+        self.request = request or collector_request
+        self.task, self.dry_run = task, dry_run
+
+    def press(self, action):
+        commands = {'teleop': dict(action='follow-toggle'),
+                    'record': dict(action='toggle', task=self.task, outcome='success'),
+                    'home': dict(action='stop', outcome='failure')}
+        data = commands[action]
+        if self.dry_run:
+            print('DRY-RUN human: '+str(data), flush=True)
+            return
+        try:
+            result = self.request(data)
+            status = result['status']
+            print(f"人間収集: {data['action']} | 追従={status['following']} 記録={status['recording']} | {result.get('result')}", flush=True)
+        except (OSError, ValueError, RuntimeError) as error:
+            print('収集操作エラー: '+str(error), flush=True)
+
+    def poll(self):
+        pass
+
+    def shutdown(self):
+        if not self.dry_run:
+            try:
+                self.request(dict(action='follow-stop'))
+            except (OSError, ValueError, RuntimeError) as error:
+                print('収集停止を確認できません: '+str(error), flush=True)
+
+
 def main(args=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--human', action='store_true', help='Quest＋グローブの人間実演収集だけを操作')
+    parser.add_argument('--task', default='human_demo')
     parser.add_argument('--repo', type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument('--dry-run', action='store_true', help='入力表示のみ、実機・記録の操作なし')
     options = parser.parse_args(args)
@@ -166,7 +201,8 @@ def main(args=None):
         parser.error('フットペダル操作は既に起動しています')
     log_dir = state/'foot-pedal'
     log_dir.mkdir(exist_ok=True)
-    manager = PedalActions(options.repo, log_dir, options.dry_run)
+    manager = (HumanPedalActions(options.task, options.dry_run) if options.human else
+               PedalActions(options.repo, log_dir, options.dry_run))
     devices = []
     stopping = [False]
     old = {sig: signal.signal(sig, lambda *_: stopping.__setitem__(0, True))
@@ -185,7 +221,9 @@ def main(args=None):
         # A key already held at launch must be released before its first action.
         for device in devices:
             edges.held.update((device.path, code) for code in device.active_keys())
-        print('左: 7番 開始/停止 | 中央: rosbag 開始/保存終了 | 右: 両腕の初期姿勢へ低速移動（再度で中止）', flush=True)
+        print(('左: 頭の基準設定・追従開始/停止 | 中央: 人間データ記録開始/成功保存 | 右: 失敗として保存終了'
+               if options.human else
+               '左: 7番 開始/停止 | 中央: rosbag 開始/保存終了 | 右: 両腕の初期姿勢へ低速移動（再度で中止）'), flush=True)
         print('終了: Ctrl+C。入力は他のウィンドウへ送られません。', flush=True)
         while not stopping[0]:
             ready, _, _ = select.select(devices, [], [], .1)

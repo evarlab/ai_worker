@@ -18,6 +18,8 @@ def main():
     status = tk.StringVar(value='接続確認中'); error = tk.StringVar(); path = tk.StringVar()
     ttk.Label(frame, textvariable=status, font=('', 16)).pack(anchor='w', pady=15)
     buttons = ttk.Frame(frame); buttons.pack(fill='x')
+    ttk.Button(buttons, text='追従開始（頭の基準設定）', command=lambda: action('follow-start')).pack(side='left', padx=5)
+    ttk.Button(buttons, text='追従終了', command=lambda: action('follow-stop')).pack(side='left', padx=5)
     start = ttk.Button(buttons, text='● 記録開始', command=lambda: action('start')); start.pack(side='left', padx=5, ipady=12)
     stop = ttk.Button(buttons, text='■ 記録停止', command=lambda: action('stop')); stop.pack(side='left', padx=5, ipady=12)
     ttk.Combobox(buttons, textvariable=outcome, values=['success','failure','unspecified'], state='readonly', width=13).pack(side='left', padx=5)
@@ -35,9 +37,9 @@ def main():
     def display(s):
         recording = s['recording']; ages = s['ages_s']
         ready = all(ages.get(k,1e9)<.5 for k in ['xr','glove_left','glove_right'])
-        status.set(('● 記録中' if recording else '■ 停止中')+f'   VR {s.get("xr_rate_hz",0):.0f} Hz / '+('入力あり' if ready else '入力待ち'))
+        status.set(('● 記録中' if recording else '追従中' if s.get('following') else '追従停止中')+f'   VR {s.get("xr_rate_hz",0):.0f} Hz / '+('入力あり' if ready else '入力待ち'))
         path.set('保存先: '+str(s.get('directory') or '未開始'))
-        start.configure(state='disabled' if recording else 'normal'); stop.configure(state='normal' if recording else 'disabled')
+        start.configure(state='disabled' if recording or not s.get('following') else 'normal'); stop.configure(state='normal' if recording else 'disabled')
     def action(name):
         try:
             if name=='start' and not task.get().strip(): raise ValueError('タスク名を入力してください')

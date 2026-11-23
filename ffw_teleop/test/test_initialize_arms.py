@@ -1,4 +1,5 @@
 import os
+import json
 import subprocess
 import sys
 import time
@@ -13,8 +14,8 @@ from trajectory_msgs.msg import JointTrajectory
 from ffw_teleop.vr_start_pose import relaxed_arm_positions
 
 
-@pytest.mark.parametrize('cancel', [False, True])
-def test_initialization_waits_for_arrival_and_holds_when_cancelled(tmp_path, cancel):
+@pytest.mark.parametrize('cancel,custom,bad_lift', [(False,False,False),(True,False,False),(False,True,False),(True,True,False),(False,True,True)])
+def test_initialization_waits_for_arrival_and_holds_when_cancelled(tmp_path, cancel, custom, bad_lift):
     # Only a synthetic robot in domain 93; no physical publishers or services.
     context = Context()
     rclpy.init(context=context, domain_id=93)
@@ -22,9 +23,16 @@ def test_initialization_waits_for_arrival_and_holds_when_cancelled(tmp_path, can
     executor = SingleThreadedExecutor(context=context)
     executor.add_node(node)
     target = relaxed_arm_positions()
+    extra=[]
+    if custom:
+        target={name:value+.1 for name,value in target.items()}
+        profile=tmp_path/'pose.json'
+        profile.write_text(json.dumps(dict(arm_positions=target,joint_limits={n:[-3.14,3.14] for n in target},reference_lift_m=-.2)))
+        extra=['--target-file',str(profile)]
     state = dict(target)
     state['arm_l_joint1'] = .2
     state['arm_r_joint1'] = -.2
+    if custom:state['lift_joint']=-.15 if bad_lift else -.2
     initial = dict(state)
     messages = {'l': [], 'r': []}
     arrivals = {}
@@ -54,7 +62,7 @@ def test_initialization_waits_for_arrival_and_holds_when_cancelled(tmp_path, can
     node.create_timer(.02, feedback)
     marker = tmp_path/'stop-generation'
     marker.write_text('before')
-    process = subprocess.Popen([sys.executable, '-m', 'ffw_teleop.initialize_arms', '--domain', '93'],
+    process = subprocess.Popen([sys.executable, '-m', 'ffw_teleop.initialize_arms', '--domain', '93', *extra],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         env={**os.environ, 'HOME': str(tmp_path), 'AI_WORKER_OPERATION_FILE': str(marker),
              'AI_WORKER_OPERATION_TOKEN': 'before'})
@@ -70,9 +78,14 @@ def test_initialization_waits_for_arrival_and_holds_when_cancelled(tmp_path, can
         while time.monotonic() < end:
             executor.spin_once(timeout_sec=.02)
         output = process.communicate(timeout=2)[0]
+        if bad_lift:
+            assert process.returncode==1 and 'lift' in output,output
+            assert not any(messages.values())
+            return
         assert process.returncode == (130 if cancel else 0), output
         for side in messages:
             planned = next(msg for msg in messages[side] if len(msg.points) == 2)
+            assert planned.header.stamp.sec == 0 and planned.header.stamp.nanosec == 0
             assert planned.points[-1].positions == pytest.approx([target[n] for n in planned.joint_names])
             held = messages[side][-1]
             expected = initial if cancel else target

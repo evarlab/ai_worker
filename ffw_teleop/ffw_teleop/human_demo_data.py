@@ -41,7 +41,9 @@ def task_frame(origin, right, forward):
 
 
 class HumanEpisodes:
-    def __init__(self, root):
+    def __init__(self, root, workspace=None):
+        self.capture_calibration = None
+        self.workspace = workspace
         self.root = Path(root).expanduser()
         self.root.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
@@ -54,7 +56,35 @@ class HumanEpisodes:
         self.reference_id = None
         self.calibration = {}
         self.marks = {}
+        self.following = False
+        self.head_origin = None
         self.flush_time = time.monotonic()
+
+    def follow_start(self):
+        with self.lock:
+            if self.stream is not None:
+                raise ValueError('記録中は初期位置を変更できません。先にstopしてください')
+            sample = self.latest.get('xr')
+            if not sample or time.monotonic_ns()-sample['receive_monotonic_ns'] > 300_000_000:
+                raise ValueError('Questの新しい頭の位置データがありません')
+            data = sample['data']
+            if data.get('reference_id') != self.reference_id or data.get('head') is None:
+                raise ValueError('頭の追跡またはreference_idを確認してください')
+            head = rigid(np.asarray(data['head']).reshape(4, 4, order='F'))
+            self.head_origin = dict(reference_id=self.reference_id,
+                T_world_head_origin=head.tolist(), receive_monotonic_ns=sample['receive_monotonic_ns'],
+                hand_coordinates='current_head', head_coordinates='head_at_follow_start')
+            self.following = True
+            self.record('follow_start', self.head_origin.copy())
+            return self.head_origin.copy()
+
+    def follow_stop(self):
+        with self.lock:
+            directory = self.stop('interrupted')
+            self.following = False
+            self.head_origin = None
+            self.record('follow_stop', {})
+            return directory
 
     def start(self, task='unspecified'):
         with self.lock:
@@ -63,12 +93,13 @@ class HumanEpisodes:
             self.directory = self.root/f'{datetime.now():%Y%m%d-%H%M%S}-{time.time_ns()}'
             self.directory.mkdir()
             self.counts = Counter()
-            self.manifest = dict(schema='human_demo_v1', task=task, complete=False,
+            self.manifest = dict(capture_calibration=self.capture_calibration.snapshot() if self.capture_calibration else None, workspace=self.workspace, schema='human_demo_v1', task=task, complete=False,
                 started_wall_ns=time.time_ns(), units=dict(position='m', glove='degrees'),
                 glove_angle_order=['thumb.cmc', 'thumb.mcp', 'thumb.ip', 'thumb.tilt']+
                     [finger+'.'+joint for finger in ('index', 'middle', 'ring', 'little') for joint in ('mcp', 'pip', 'dip', 'tilt')],
                 coordinates='WebXR right-handed +X right +Y up -Z forward; matrices column-major in raw WebXR packets',
                 reference_id=self.reference_id, calibration=self.calibration.copy(),
+                head_origin=self.head_origin.copy() if self.following else None,
                 camera_streams={}, note='Human data only. No robot joint angles, currents, depth, or policy are inferred.')
             self._manifest()
             self.stream = gzip.open(self.directory/'events.jsonl.gz', 'wt', encoding='utf-8', compresslevel=1)
@@ -92,12 +123,27 @@ class HumanEpisodes:
             if kind == 'xr':
                 self.xr_received += 1
                 self.recent_xr.append(event['receive_monotonic_ns'])
+                data = dict(data, following=self.following)
+                if self.capture_calibration:
+                    data.update(self.capture_calibration.observe_xr(data))
+                event['data'] = data
+                if self.following and self.head_origin and data.get('reference_id') == self.head_origin['reference_id']:
+                    head = rigid(np.asarray(data['head']).reshape(4, 4, order='F')) if data.get('head') is not None else None
+                    data['T_head_origin_head'] = (np.linalg.inv(self.head_origin['T_world_head_origin'])@head).tolist() if head is not None else None
+                    for side in ('left', 'right'):
+                        valid = head is not None and data.get(side) is not None and not data.get('controllers', {}).get(side, {}).get('emulated_position')
+                        data['T_head_'+side] = (np.linalg.inv(head)@rigid(np.asarray(data[side]).reshape(4, 4, order='F'))).tolist() if valid else None
             if kind == 'reference':
                 new_id = data.get('reference_id')
+                if self.capture_calibration:
+                    self.capture_calibration.reset_reference(new_id)
                 if new_id != self.reference_id:
+                    if self.following:
+                        self.follow_stop()
                     self.calibration = {}
                     self.marks = {}
                 self.reference_id = new_id
+            self.latest[kind] = event
             if self.stream is not None:
                 self.stream.write(json.dumps(event, ensure_ascii=False, allow_nan=False)+'\n')
                 self.counts[kind] += 1
@@ -174,7 +220,7 @@ class HumanEpisodes:
                     head_relative_position_m=relative_position,
                     profiles=controller.get('profiles', []), emulated_position=controller.get('emulated_position'))
             duration = (self.recent_xr[-1]-self.recent_xr[0])/1e9 if len(self.recent_xr) > 1 else 0.
-            return dict(recording=self.stream is not None, directory=str(self.directory) if self.directory else None,
+            return dict(capture_calibration=self.capture_calibration.status() if self.capture_calibration else None, recording=self.stream is not None, following=self.following, head_origin=self.head_origin, directory=str(self.directory) if self.directory else None,
                 reference_id=self.reference_id, calibrated=bool(self.calibration), counts=dict(self.counts),
                 tracking=tracking, xr_received=self.xr_received,
                 xr_rate_hz=(len(self.recent_xr)-1)/duration if duration and age < .5 else 0.,

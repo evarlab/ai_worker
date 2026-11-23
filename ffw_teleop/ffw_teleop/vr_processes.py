@@ -32,10 +32,10 @@ def main():
         node = rclpy.create_node('check_live_controllers')
         client = node.create_client(ListControllers, '/controller_manager/list_controllers')
         try:
-            if not client.wait_for_service(timeout_sec=2):
+            if not client.wait_for_service(timeout_sec=8):
                 raise SystemExit('2番の実機本体が起動していません。先に2番を起動してください。')
             future = client.call_async(ListControllers.Request())
-            rclpy.spin_until_future_complete(node, future, timeout_sec=2)
+            rclpy.spin_until_future_complete(node, future, timeout_sec=5)
             if not future.done():
                 raise SystemExit('実機本体の応答がありません。通信状態を確認してください。')
             states = {controller.name: controller.state for controller in future.result().controller}
